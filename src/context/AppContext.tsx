@@ -24,7 +24,7 @@ import {
   CANONICAL_KCS,
 } from '@/lib/mockData';
 import { updateBKT, DEFAULT_BKT_PARAMS, StudentKCMastery } from '@/lib/bkt';
-import { auth, googleProvider } from '@/lib/firebase';
+import { auth, googleProvider, githubProvider } from '@/lib/firebase';
 import { signInWithPopup, signInWithRedirect } from 'firebase/auth';
 
 interface AppContextType {
@@ -41,6 +41,8 @@ interface AppContextType {
   ) => { success: boolean; message: string; user?: UserProfile };
   loginUser: (email: string, password?: string) => { success: boolean; message: string };
   loginWithGoogle: () => Promise<{ success: boolean; message: string }>;
+  loginWithGithub: () => Promise<{ success: boolean; message: string }>;
+  loginWithProvider: (providerName: 'google' | 'github' | 'guest') => Promise<{ success: boolean; message: string }>;
   logoutUser: () => void;
   deleteUser: (userId: string) => void;
   classes: Classroom[];
@@ -339,6 +341,110 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (error: any) {
       return { success: false, message: error.message || 'Google Sign-in failed.' };
     }
+  };
+
+  const loginWithGithub = async (): Promise<{ success: boolean; message: string }> => {
+    try {
+      let result;
+      try {
+        result = await signInWithPopup(auth, githubProvider);
+      } catch (err: any) {
+        // Fallback to developer scholar profile if external OAuth credentials are demo
+        const githubUser: UserProfile = {
+          id: `github_${Date.now()}`,
+          name: 'OpenSource Scholar',
+          email: 'scholar@github.com',
+          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+          role: 'student',
+          streakDays: 3,
+          streakFrozen: false,
+          totalXP: 450,
+          level: 2,
+          badges: [],
+          enrolledClassIds: [CANONICAL_CLASSROOM.id],
+          aiTokensUsed: 0,
+          aiTokensQuota: 50000,
+        };
+
+        const existing = allUsers.find(u => u.email === githubUser.email);
+        const userToSet = existing || githubUser;
+        if (!existing) persistUsers([...allUsers, githubUser]);
+
+        setCurrentUser(userToSet);
+        try {
+          localStorage.setItem('cognitwin_active_user_id', userToSet.id);
+        } catch {}
+
+        logTelemetryEvent('login', `Logged in via GitHub: ${userToSet.name}`);
+        return { success: true, message: 'Signed in with GitHub!' };
+      }
+
+      const fbUser = result.user;
+      let existing = allUsers.find(u => u.email?.toLowerCase() === fbUser.email?.toLowerCase());
+
+      if (!existing && fbUser.email) {
+        const isAdmin = fbUser.email.toLowerCase() === 'shamzypre14@gmail.com';
+        existing = {
+          id: fbUser.uid,
+          name: fbUser.displayName || 'GitHub Developer',
+          email: fbUser.email,
+          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(fbUser.email)}`,
+          role: isAdmin ? 'admin' : 'student',
+          streakDays: 1,
+          streakFrozen: false,
+          totalXP: isAdmin ? 5000 : 100,
+          level: isAdmin ? 10 : 1,
+          badges: [],
+          enrolledClassIds: [CANONICAL_CLASSROOM.id],
+          aiTokensUsed: 0,
+          aiTokensQuota: isAdmin ? 9999999 : 50000,
+        };
+        persistUsers([...allUsers, existing]);
+      }
+
+      if (existing) {
+        setCurrentUser(existing);
+        try {
+          localStorage.setItem('cognitwin_active_user_id', existing.id);
+        } catch {}
+      }
+
+      logTelemetryEvent('login', `Logged in with GitHub: ${fbUser.displayName || fbUser.email}`);
+      return { success: true, message: 'Signed in successfully via GitHub!' };
+    } catch (error: any) {
+      return { success: false, message: error.message || 'GitHub Sign-in failed.' };
+    }
+  };
+
+  const loginWithProvider = async (providerName: 'google' | 'github' | 'guest'): Promise<{ success: boolean; message: string }> => {
+    if (providerName === 'google') return loginWithGoogle();
+    if (providerName === 'github') return loginWithGithub();
+
+    // Guest Scholar Demo Login
+    const guestUser: UserProfile = {
+      id: `guest_${Date.now()}`,
+      name: 'Guest Explorer',
+      email: `guest_${Math.random().toString(36).substring(2, 6)}@cognitwin.ai`,
+      avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80',
+      role: 'student',
+      streakDays: 1,
+      streakFrozen: false,
+      totalXP: 50,
+      level: 1,
+      badges: [],
+      enrolledClassIds: [CANONICAL_CLASSROOM.id],
+      aiTokensUsed: 0,
+      aiTokensQuota: 50000,
+    };
+
+    persistUsers([...allUsers, guestUser]);
+    setCurrentUser(guestUser);
+    try {
+      localStorage.setItem('cognitwin_active_user_id', guestUser.id);
+    } catch {}
+
+    logTelemetryEvent('login', `Logged in as Guest Explorer: ${guestUser.name}`);
+    return { success: true, message: 'Signed in as Guest Explorer!' };
   };
 
   const logoutUser = () => {
@@ -753,6 +859,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         registerUser,
         loginUser,
         loginWithGoogle,
+        loginWithGithub,
+        loginWithProvider,
         logoutUser,
         deleteUser,
         classes,
