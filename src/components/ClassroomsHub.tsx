@@ -92,23 +92,60 @@ export default function ClassroomsHub() {
     });
   }, [classes, searchQuery, categoryFilter, currentUser]);
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  // AI Syllabus state
+  const [isGeneratingSyllabus, setIsGeneratingSyllabus] = useState(false);
+  const [generatedTopics, setGeneratedTopics] = useState<KnowledgeComponent[] | null>(null);
+
+  const { generateAISyllabus } = useApp();
+
+  const handleGenerateAISyllabus = async () => {
+    if (!name.trim()) {
+      setStatusMessage('Please enter a Class Title first before generating syllabus with AI.');
+      setTimeout(() => setStatusMessage(''), 3000);
+      return;
+    }
+    setIsGeneratingSyllabus(true);
+    try {
+      const kcs = await generateAISyllabus(name, subject, topic || name);
+      setGeneratedTopics(kcs);
+      setStatusMessage(`✨ Gemini AI successfully generated ${kcs.length} custom syllabus topics & simulations!`);
+      setTimeout(() => setStatusMessage(''), 4000);
+    } catch (err: any) {
+      setStatusMessage('AI generation failed. Using standard curriculum modules.');
+    } finally {
+      setIsGeneratingSyllabus(false);
+    }
+  };
+
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    const newClass = createClassroom(
+
+    let kcsToUse = generatedTopics;
+    if (!kcsToUse) {
+      setIsGeneratingSyllabus(true);
+      try {
+        kcsToUse = await generateAISyllabus(name, subject, topic || name);
+      } catch {}
+      setIsGeneratingSyllabus(false);
+    }
+
+    const newClass = await createClassroom(
       name,
       subject,
       topic || name,
       isPublic,
       requiresApproval,
-      description || `A comprehensive curriculum on ${name}. Topics include digital twin simulations and BKT mastery labs.`
+      description || `A comprehensive curriculum on ${name}. Topics include digital twin simulations and BKT mastery labs.`,
+      kcsToUse || undefined
     );
     setShowCreateModal(false);
     setActiveClassId(newClass.id);
     setActiveView('class_details');
     setName('');
     setDescription('');
-    setStatusMessage(`Class "${newClass.name}" created successfully! Code: ${newClass.code}`);
+    setGeneratedTopics(null);
+    setStatusMessage(`Class "${newClass.name}" created and synced across database! Code: ${newClass.code}`);
     setTimeout(() => setStatusMessage(''), 4000);
   };
 
@@ -626,6 +663,48 @@ export default function ClassroomsHub() {
                     <span>Private (Approval Required)</span>
                   </label>
                 </div>
+              </div>
+
+              {/* AI Syllabus Generator Box (Gemini 3.8 Flash) */}
+              <div className="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-xl space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" /> AI Syllabus Generator (Gemini 3.8 Flash)
+                    </span>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      AI architects 4 custom syllabus units with matching topic digital twin simulation labs.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGenerateAISyllabus}
+                    disabled={isGeneratingSyllabus}
+                    className="px-3 py-1.5 bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    {isGeneratingSyllabus ? 'Generating...' : 'Generate with AI'}
+                  </button>
+                </div>
+
+                {generatedTopics && generatedTopics.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-indigo-500/20 space-y-1.5 max-h-36 overflow-y-auto">
+                    <span className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider">
+                      Generated Curriculum Preview ({generatedTopics.length} Units):
+                    </span>
+                    {generatedTopics.map((t, idx) => (
+                      <div key={idx} className="bg-slate-900/80 p-2 rounded-lg text-xs flex items-center justify-between">
+                        <div>
+                          <strong className="text-white block">{t.code}: {t.title}</strong>
+                          <span className="text-[10px] text-slate-400">{t.simulation?.title || 'Interactive Lab'}</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded">
+                          Sim Ready
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">

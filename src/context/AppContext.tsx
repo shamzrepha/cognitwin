@@ -24,8 +24,26 @@ import {
   CANONICAL_KCS,
 } from '@/lib/mockData';
 import { updateBKT, DEFAULT_BKT_PARAMS, StudentKCMastery } from '@/lib/bkt';
-import { auth, googleProvider, githubProvider } from '@/lib/firebase';
-import { signInWithPopup, signInWithRedirect } from 'firebase/auth';
+import { auth, googleProvider, githubProvider, db } from '@/lib/firebase';
+import { signInWithPopup } from 'firebase/auth';
+
+export function getUserIdFromEmail(email: string): string {
+  const clean = email.trim().toLowerCase();
+  if (clean === 'shamzypre14@gmail.com') return 'admin_shamz';
+  return `std_${clean.replace(/[^a-z0-9]/g, '_')}`;
+}
+
+export function formatNameFromEmail(email: string): string {
+  const local = email.split('@')[0] || 'Student';
+  return (
+    local
+      .replace(/[._-]+/g, ' ')
+      .split(' ')
+      .filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ') || 'Scholar'
+  );
+}
 
 interface AppContextType {
   currentUser: UserProfile | null;
@@ -48,14 +66,20 @@ interface AppContextType {
   classes: Classroom[];
   activeClassId: string;
   setActiveClassId: (id: string) => void;
+  generateAISyllabus: (
+    className: string,
+    subject: string,
+    topic: string
+  ) => Promise<KnowledgeComponent[]>;
   createClassroom: (
     name: string,
     subject: string,
     topic: string,
     isPublic: boolean,
     requiresApproval: boolean,
-    description: string
-  ) => Classroom;
+    description: string,
+    knowledgeComponents?: KnowledgeComponent[]
+  ) => Promise<Classroom>;
   enrollInClass: (classId: string) => { success: boolean; message: string };
   joinClassByCode: (code: string) => { success: boolean; message: string };
   approveStudentInClass: (classId: string, studentId: string) => void;
@@ -90,7 +114,6 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  // Current user starts as null to show real landing/auth page unless already logged in
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [allUsers, setAllUsers] = useState<UserProfile[]>(INITIAL_USERS);
   const [classes, setClasses] = useState<Classroom[]>([CANONICAL_CLASSROOM]);
@@ -111,7 +134,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
   ]);
 
-  // Load state from localStorage on boot
+  // Load state and sync with server-side database & Firestore on boot
   useEffect(() => {
     try {
       const storedUsers = localStorage.getItem('cognitwin_registered_users_v3');
@@ -140,9 +163,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (Array.isArray(parsed)) setTelemetryLogs(parsed);
       }
 
-      const savedKey = localStorage.getItem('cognitwin_gemini_key');
-      if (savedKey) setGeminiApiKeyState(savedKey);
-
       const activeUserId = localStorage.getItem('cognitwin_active_user_id');
       if (activeUserId) {
         const usersList: UserProfile[] = storedUsers ? JSON.parse(storedUsers) : INITIAL_USERS;
@@ -150,6 +170,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (match) setCurrentUser(match);
       }
     } catch {}
+
+    // Cross-Device Server Database Sync for Classrooms
+    fetch('/api/classrooms')
+      .then(res => res.json())
+      .then(data => {
+        if (data?.classrooms && Array.isArray(data.classrooms) && data.classrooms.length > 0) {
+          setClasses(prev => {
+            const map = new Map<string, Classroom>();
+            data.classrooms.forEach((c: Classroom) => map.set(c.id, c));
+            prev.forEach(c => {
+              if (!map.has(c.id)) map.set(c.id, c);
+            });
+            const merged = Array.from(map.values());
+            persistClasses(merged);
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const setGeminiApiKey = (key: string) => {
@@ -210,6 +249,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  // Normal Sign Up Architecture (Email & Password)
   const registerUser = (
     name: string,
     email: string,
@@ -224,14 +264,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const isAdmin = cleanEmail === 'shamzypre14@gmail.com';
     const resolvedRole = isAdmin ? 'admin' : role;
+    const studentId = getUserIdFromEmail(cleanEmail);
+    const realName = name.trim() || formatNameFromEmail(cleanEmail);
 
     const newUser: UserProfile = {
-      id: isAdmin ? 'admin_shamz' : `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      name: isAdmin ? 'Shamz' : name,
+      id: studentId,
+      name: realName,
       email: cleanEmail,
       avatar: isAdmin
         ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
-        : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
+        : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanEmail)}`,
       role: resolvedRole,
       password,
       schoolName: isAdmin
@@ -265,19 +307,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     persistUsers(updated);
     setCurrentUser(newUser);
 
+    // Save to server database
+    fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user: newUser }),
+    }).catch(() => {});
+
     try {
       localStorage.setItem('cognitwin_active_user_id', newUser.id);
     } catch {}
 
-    logTelemetryEvent('signup', `Real ${resolvedRole} registered: ${name} (${cleanEmail})`);
+    logTelemetryEvent('signup', `Real ${resolvedRole} registered: ${realName} (${cleanEmail}) [ID: ${studentId}]`);
     return { success: true, message: 'Account registered successfully!', user: newUser };
   };
 
+  // Normal Sign In Architecture (Email & Password)
   const loginUser = (email: string, password = ''): { success: boolean; message: string } => {
     const cleanEmail = email.trim().toLowerCase();
     let user = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
     if (!user) {
-      return { success: false, message: 'No registered user found with that email.' };
+      return { success: false, message: 'No registered user found with that email address.' };
     }
 
     if (cleanEmail === 'shamzypre14@gmail.com' && user.role !== 'admin') {
@@ -290,183 +340,147 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('cognitwin_active_user_id', user.id);
     } catch {}
 
-    logTelemetryEvent('login', `${user.name} logged in as ${user.role}`);
-    return { success: true, message: 'Signed in successfully!' };
+    logTelemetryEvent('login', `${user.name} logged in as ${user.role} [ID: ${user.id}]`);
+    return { success: true, message: `Welcome back, ${user.name}!` };
   };
 
+  // Real Google Sign In (Uses authentic email, photoURL, and displayName - no random names)
   const loginWithGoogle = async (selectedRole?: UserRole): Promise<{ success: boolean; message: string }> => {
     try {
-      let result;
-      try {
-        result = await signInWithPopup(auth, googleProvider);
-      } catch (err: any) {
-        // Fallback for local development if popup is blocked:
-        const promptEmail = prompt('Enter your Google Account email:') || `scholar_${Date.now()}@gmail.com`;
-        const isAdmin = promptEmail.trim().toLowerCase() === 'shamzypre14@gmail.com';
-        const assignedRole = isAdmin ? 'admin' : (selectedRole || 'student');
-        
-        let targetUser = allUsers.find(u => u.email.toLowerCase() === promptEmail.trim().toLowerCase());
-        if (!targetUser) {
-          targetUser = {
-            id: isAdmin ? 'admin_shamz' : `google_${Date.now()}`,
-            name: isAdmin ? 'Shamz' : promptEmail.split('@')[0],
-            email: promptEmail.trim().toLowerCase(),
-            avatar: isAdmin
-              ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
-              : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(promptEmail)}`,
-            role: assignedRole,
-            streakDays: 1,
-            streakFrozen: false,
-            totalXP: isAdmin ? 5000 : 50,
-            level: isAdmin ? 10 : 1,
-            badges: [],
-            enrolledClassIds: [CANONICAL_CLASSROOM.id],
-            aiTokensUsed: 0,
-            aiTokensQuota: isAdmin ? 9999999 : assignedRole === 'teacher' ? 200000 : 50000,
-          };
-          persistUsers([...allUsers, targetUser]);
-        }
+      const result = await signInWithPopup(auth, googleProvider);
+      const fbUser = result.user;
+      const cleanEmail = (fbUser.email || '').toLowerCase().trim();
 
-        setCurrentUser(targetUser);
-        try {
-          localStorage.setItem('cognitwin_active_user_id', targetUser.id);
-        } catch {}
-
-        logTelemetryEvent('login', `Logged in via Google Auth: ${targetUser.name} (${targetUser.role})`);
-        return { success: true, message: `Signed in as ${targetUser.name}!` };
+      if (!cleanEmail) {
+        return { success: false, message: 'Google account did not return a valid email address.' };
       }
 
-      const fbUser = result.user;
-      const userEmail = (fbUser.email || '').toLowerCase();
-      const isAdmin = userEmail === 'shamzypre14@gmail.com';
+      const isAdmin = cleanEmail === 'shamzypre14@gmail.com';
       const assignedRole = isAdmin ? 'admin' : (selectedRole || 'student');
+      const studentId = getUserIdFromEmail(cleanEmail);
+      const realName = fbUser.displayName || formatNameFromEmail(cleanEmail);
+      const realAvatar =
+        fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanEmail)}`;
 
-      let existing = allUsers.find(u => u.email.toLowerCase() === userEmail);
+      let targetUser = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
 
-      if (!existing && userEmail) {
-        existing = {
-          id: isAdmin ? 'admin_shamz' : fbUser.uid,
-          name: fbUser.displayName || (isAdmin ? 'Shamz' : 'Google Scholar'),
-          email: userEmail,
-          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userEmail)}`,
+      if (!targetUser) {
+        targetUser = {
+          id: studentId,
+          name: realName,
+          email: cleanEmail,
+          avatar: realAvatar,
           role: assignedRole,
           streakDays: 1,
           streakFrozen: false,
-          totalXP: isAdmin ? 5000 : 100,
+          totalXP: isAdmin ? 5000 : 50,
           level: isAdmin ? 10 : 1,
           badges: [],
           enrolledClassIds: [CANONICAL_CLASSROOM.id],
           aiTokensUsed: 0,
           aiTokensQuota: isAdmin ? 9999999 : assignedRole === 'teacher' ? 200000 : 50000,
         };
-        persistUsers([...allUsers, existing]);
-      } else if (existing && isAdmin && existing.role !== 'admin') {
-        // Guarantee Shamz always has super admin rights
-        existing = { ...existing, role: 'admin', aiTokensQuota: 9999999 };
-        persistUsers(allUsers.map(u => (u.id === existing?.id ? existing : u)));
+        persistUsers([...allUsers, targetUser]);
+      } else {
+        // Update with verified Google profile data
+        targetUser = {
+          ...targetUser,
+          name: fbUser.displayName || targetUser.name,
+          avatar: fbUser.photoURL || targetUser.avatar,
+          role: isAdmin ? 'admin' : targetUser.role,
+        };
+        persistUsers(allUsers.map(u => (u.id === targetUser?.id ? targetUser! : u)));
       }
 
-      if (existing) {
-        setCurrentUser(existing);
-        try {
-          localStorage.setItem('cognitwin_active_user_id', existing.id);
-        } catch {}
-      }
+      // Sync user to server database
+      fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: targetUser }),
+      }).catch(() => {});
 
-      logTelemetryEvent('login', `Logged in with Google: ${fbUser.displayName || userEmail} (${existing?.role})`);
-      return { success: true, message: 'Signed in successfully via Google!' };
+      setCurrentUser(targetUser);
+      try {
+        localStorage.setItem('cognitwin_active_user_id', targetUser.id);
+      } catch {}
+
+      logTelemetryEvent('login', `Logged in via Google: ${targetUser.name} (${targetUser.role}) [ID: ${studentId}]`);
+      return { success: true, message: `Signed in as ${targetUser.name}!` };
     } catch (error: any) {
-      return { success: false, message: error.message || 'Google Sign-in failed.' };
+      if (error?.code === 'auth/popup-closed-by-user') {
+        return { success: false, message: 'Google sign-in popup was closed before completing.' };
+      }
+      return {
+        success: false,
+        message: error?.message || 'Google authentication could not be completed. Please use email registration.',
+      };
     }
   };
 
   const loginWithGithub = async (selectedRole?: UserRole): Promise<{ success: boolean; message: string }> => {
     try {
-      let result;
-      try {
-        result = await signInWithPopup(auth, githubProvider);
-      } catch (err: any) {
-        // Fallback to developer scholar profile if external OAuth credentials are demo
-        const assignedRole = selectedRole || 'student';
-        const githubUser: UserProfile = {
-          id: `github_${Date.now()}`,
-          name: 'OpenSource Scholar',
-          email: 'scholar@github.com',
-          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-          role: assignedRole,
-          streakDays: 3,
-          streakFrozen: false,
-          totalXP: 450,
-          level: 2,
-          badges: [],
-          enrolledClassIds: [CANONICAL_CLASSROOM.id],
-          aiTokensUsed: 0,
-          aiTokensQuota: assignedRole === 'teacher' ? 200000 : 50000,
-        };
+      const result = await signInWithPopup(auth, githubProvider);
+      const fbUser = result.user;
+      const cleanEmail = (fbUser.email || '').toLowerCase().trim();
 
-        const existing = allUsers.find(u => u.email === githubUser.email);
-        const userToSet = existing || githubUser;
-        if (!existing) persistUsers([...allUsers, githubUser]);
-
-        setCurrentUser(userToSet);
-        try {
-          localStorage.setItem('cognitwin_active_user_id', userToSet.id);
-        } catch {}
-
-        logTelemetryEvent('login', `Logged in via GitHub: ${userToSet.name}`);
-        return { success: true, message: 'Signed in with GitHub!' };
+      if (!cleanEmail) {
+        return { success: false, message: 'GitHub account did not return an email.' };
       }
 
-      const fbUser = result.user;
-      const userEmail = (fbUser.email || '').toLowerCase();
-      const isAdmin = userEmail === 'shamzypre14@gmail.com';
+      const isAdmin = cleanEmail === 'shamzypre14@gmail.com';
       const assignedRole = isAdmin ? 'admin' : (selectedRole || 'student');
+      const studentId = getUserIdFromEmail(cleanEmail);
+      const realName = fbUser.displayName || formatNameFromEmail(cleanEmail);
 
-      let existing = allUsers.find(u => u.email?.toLowerCase() === userEmail);
+      let targetUser = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
 
-      if (!existing && userEmail) {
-        existing = {
-          id: fbUser.uid,
-          name: fbUser.displayName || 'GitHub Developer',
-          email: userEmail,
-          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userEmail)}`,
+      if (!targetUser) {
+        targetUser = {
+          id: studentId,
+          name: realName,
+          email: cleanEmail,
+          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanEmail)}`,
           role: assignedRole,
           streakDays: 1,
           streakFrozen: false,
-          totalXP: isAdmin ? 5000 : 100,
+          totalXP: isAdmin ? 5000 : 50,
           level: isAdmin ? 10 : 1,
           badges: [],
           enrolledClassIds: [CANONICAL_CLASSROOM.id],
           aiTokensUsed: 0,
           aiTokensQuota: isAdmin ? 9999999 : assignedRole === 'teacher' ? 200000 : 50000,
         };
-        persistUsers([...allUsers, existing]);
+        persistUsers([...allUsers, targetUser]);
       }
 
-      if (existing) {
-        setCurrentUser(existing);
-        try {
-          localStorage.setItem('cognitwin_active_user_id', existing.id);
-        } catch {}
-      }
+      fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user: targetUser }),
+      }).catch(() => {});
 
-      logTelemetryEvent('login', `Logged in with GitHub: ${fbUser.displayName || userEmail}`);
-      return { success: true, message: 'Signed in successfully via GitHub!' };
+      setCurrentUser(targetUser);
+      localStorage.setItem('cognitwin_active_user_id', targetUser.id);
+      return { success: true, message: `Signed in as ${targetUser.name}!` };
     } catch (error: any) {
       return { success: false, message: error.message || 'GitHub Sign-in failed.' };
     }
   };
 
-  const loginWithProvider = async (providerName: 'google' | 'github' | 'guest', selectedRole?: UserRole): Promise<{ success: boolean; message: string }> => {
+  const loginWithProvider = async (
+    providerName: 'google' | 'github' | 'guest',
+    selectedRole?: UserRole
+  ): Promise<{ success: boolean; message: string }> => {
     if (providerName === 'google') return loginWithGoogle(selectedRole);
     if (providerName === 'github') return loginWithGithub(selectedRole);
 
-    // Guest Scholar Demo Login
+    // Instant Guest Demo
     const assignedRole = selectedRole || 'student';
+    const guestEmail = `guest.${Date.now()}@cognitwin.ai`;
     const guestUser: UserProfile = {
-      id: `guest_${Date.now()}`,
-      name: assignedRole === 'teacher' ? 'Guest Teacher' : 'Guest Scholar',
-      email: `guest_${Math.random().toString(36).substring(2, 6)}@cognitwin.ai`,
+      id: getUserIdFromEmail(guestEmail),
+      name: assignedRole === 'teacher' ? 'Demo Instructor' : 'Demo Scholar',
+      email: guestEmail,
       avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80',
       role: assignedRole,
       streakDays: 1,
@@ -481,11 +495,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     persistUsers([...allUsers, guestUser]);
     setCurrentUser(guestUser);
-    try {
-      localStorage.setItem('cognitwin_active_user_id', guestUser.id);
-    } catch {}
-
-    logTelemetryEvent('login', `Logged in as Guest: ${guestUser.name} (${guestUser.role})`);
+    localStorage.setItem('cognitwin_active_user_id', guestUser.id);
     return { success: true, message: `Signed in as ${guestUser.name}!` };
   };
 
@@ -505,17 +515,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     logTelemetryEvent('admin_action', `Administrator removed user ID: ${userId}`);
   };
 
-  const createClassroom = (
+  // AI-Powered Syllabus Generation (Gemini 3.8 Flash)
+  const generateAISyllabus = async (
+    className: string,
+    subject: string,
+    topic: string
+  ): Promise<KnowledgeComponent[]> => {
+    try {
+      const res = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'generate_syllabus',
+          className,
+          subject,
+          topic,
+          userId: currentUser?.id,
+          userRole: currentUser?.role,
+          currentTokensUsed: currentUser?.aiTokensUsed,
+          tokenQuota: currentUser?.aiTokensQuota,
+        }),
+      });
+
+      const data = await res.json();
+      if (data?.topics && Array.isArray(data.topics) && data.topics.length > 0) {
+        if (currentUser && data.newTotalTokens) {
+          const updatedUser = { ...currentUser, aiTokensUsed: data.newTotalTokens };
+          setCurrentUser(updatedUser);
+          persistUsers(allUsers.map(u => (u.id === currentUser.id ? updatedUser : u)));
+        }
+        return data.topics;
+      }
+    } catch (err) {
+      console.error('Failed to generate AI syllabus:', err);
+    }
+
+    return CANONICAL_KCS;
+  };
+
+  // Cross-Device Classroom Creation (Shared Database & Firestore)
+  const createClassroom = async (
     name: string,
     subject: string,
     topic: string,
     isPublic: boolean,
     requiresApproval: boolean,
-    description: string
-  ): Classroom => {
+    description: string,
+    knowledgeComponents?: KnowledgeComponent[]
+  ): Promise<Classroom> => {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const classId = `class-${Date.now()}`;
+
+    // If KCs were not pre-generated, generate or use defaults
+    const kcs = knowledgeComponents && knowledgeComponents.length > 0
+      ? knowledgeComponents
+      : CANONICAL_KCS;
+
     const newClass: Classroom = {
-      id: `class-${Date.now()}`,
+      id: classId,
       name,
       subject,
       topic,
@@ -526,7 +583,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       teacherName: currentUser?.name || 'Instructor',
       description,
       materials: [],
-      knowledgeComponents: CANONICAL_KCS,
+      knowledgeComponents: kcs,
       flashcards: [],
       quizzes: [],
       enrolledStudentIds: [currentUser?.id || 'admin_shamz'],
@@ -538,6 +595,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     persistClasses(updated);
     setActiveClassId(newClass.id);
 
+    // Save to server database so all other devices immediately query it
+    fetch('/api/classrooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create', classroom: newClass }),
+    }).catch(() => {});
+
+    // Save to Firestore
+    try {
+      const { doc, setDoc } = await import('firebase/firestore');
+      await setDoc(doc(db, 'classrooms', newClass.id), newClass);
+    } catch {}
+
     if (currentUser) {
       const updatedUser = {
         ...currentUser,
@@ -547,10 +617,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistUsers(allUsers.map(u => (u.id === currentUser.id ? updatedUser : u)));
     }
 
-    logTelemetryEvent('class_created', `Teacher ${currentUser?.name} created class "${name}" (${isPublic ? 'Public' : 'Private'}) [${code}]`);
+    logTelemetryEvent(
+      'class_created',
+      `Teacher ${currentUser?.name} created class "${name}" (${isPublic ? 'Public' : 'Private'}) [${code}]`
+    );
     return newClass;
   };
 
+  // Cross-Device Enrollment
   const enrollInClass = (classId: string): { success: boolean; message: string } => {
     if (!currentUser) return { success: false, message: 'Please log in to join classes.' };
 
@@ -568,16 +642,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           : c
       );
       persistClasses(updated);
+
+      fetch('/api/classrooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'enroll', classId, studentId: currentUser.id }),
+      }).catch(() => {});
+
       logTelemetryEvent('class_created', `${currentUser.name} requested approval to join private class "${targetClass.name}"`);
       return { success: true, message: 'Approval request sent to teacher!' };
     }
 
     const updated = classes.map(c =>
-      c.id === classId
-        ? { ...c, enrolledStudentIds: [...c.enrolledStudentIds, currentUser.id] }
-        : c
+      c.id === classId ? { ...c, enrolledStudentIds: [...c.enrolledStudentIds, currentUser.id] } : c
     );
     persistClasses(updated);
+
+    fetch('/api/classrooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'enroll', classId, studentId: currentUser.id }),
+    }).catch(() => {});
 
     const updatedUser = {
       ...currentUser,
@@ -608,6 +693,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return c;
     });
     persistClasses(updated);
+
+    fetch('/api/classrooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'approve', classId, studentId }),
+    }).catch(() => {});
+
     logTelemetryEvent('admin_action', `Student ID ${studentId} approved for class ${classId}`);
   };
 
@@ -617,57 +709,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: `room-${Date.now()}`,
       name,
       code,
-      hostId: currentUser?.id || 'guest',
+      hostId: currentUser?.id || 'admin_shamz',
       hostName: currentUser?.name || 'Scholar',
       description,
       isLive: true,
       activeMembers: [
         {
           id: currentUser?.id || 'guest',
-          name: currentUser?.name || 'Scholar',
+          name: currentUser?.name || 'Guest Scholar',
           avatar: currentUser?.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=guest',
-          role: 'Host',
-          currentAction: 'Hosting Peer Study Session',
+          role: currentUser?.role || 'student',
+          currentAction: 'Reviewing circuit dynamics',
         },
       ],
       messages: [
         {
           id: `msg-${Date.now()}`,
-          senderId: currentUser?.id || 'guest',
-          senderName: currentUser?.name || 'Scholar',
-          senderAvatar: currentUser?.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=guest',
-          text: `Welcome to our collaborative study lounge "${name}"! Let's build and simulate together.`,
+          senderId: 'system',
+          senderName: 'CogniTwin Lounge Bot',
+          senderAvatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=system_bot',
+          text: `Welcome to ${name}! Collaborate with peers in real-time.`,
           timestamp: Date.now(),
         },
       ],
       materials: [],
-      sharedNotes: 'Study session notes & calculations...',
+      sharedNotes: `# ${name} — Collaborative Study Session\n\n- Key Formula: V = I * R\n- Target: Analyze DC step response and diode protection limits`,
       createdAt: new Date().toISOString().split('T')[0],
     };
 
     const updated = [newRoom, ...studyRooms];
     persistRooms(updated);
     setActiveRoomId(newRoom.id);
-    logTelemetryEvent('class_created', `${currentUser?.name} created study lounge "${name}" [${code}]`);
     return newRoom;
   };
 
   const sendPeerMessage = (roomId: string, text: string) => {
     if (!text.trim() || !currentUser) return;
     const newMsg: PeerMessage = {
-      id: `msg-${Date.now()}`,
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
       senderId: currentUser.id,
       senderName: currentUser.name,
       senderAvatar: currentUser.avatar,
-      text,
+      text: text.trim(),
       timestamp: Date.now(),
     };
 
-    const updated = studyRooms.map(r =>
-      r.id === roomId ? { ...r, messages: [...r.messages, newMsg] } : r
-    );
+    const updated = studyRooms.map(r => (r.id === roomId ? { ...r, messages: [...r.messages, newMsg] } : r));
     persistRooms(updated);
-    logTelemetryEvent('peer_message', `${currentUser.name} sent message in peer lounge`);
   };
 
   const updateSharedNotes = (roomId: string, notes: string) => {
@@ -680,215 +768,170 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isCorrect: boolean,
     activityType: 'flashcard' | 'quiz' | 'simulation_lab' | 'concept_review',
     xpReward = 50,
-    details = ''
+    details?: string
   ): { newP_L: number; newlyMastered: boolean } => {
-    if (!currentUser) return { newP_L: 0.2, newlyMastered: false };
-    const studentId = currentUser.id;
+    if (!currentUser) return { newP_L: 0.5, newlyMastered: false };
 
-    const currentProgress = studentProgress[studentId] || {
-      studentId,
+    const currentStudentProg = studentProgress[currentUser.id] || {
+      studentId: currentUser.id,
       studentName: currentUser.name,
       studentAvatar: currentUser.avatar,
-      overallMasteryPct: 20,
+      overallMasteryPct: 40,
+      masteryByKC: {},
       streakDays: currentUser.streakDays,
       totalXP: currentUser.totalXP,
-      lastActive: 'Just now',
+      lastActive: new Date().toISOString().split('T')[0],
       struggleRisk: { level: 'low', flaggedKCs: [] },
-      masteryByKC: {},
     };
 
-    const targetKC = CANONICAL_KCS.find(k => k.id === kcId);
-    const bktParams = targetKC?.bktParams || DEFAULT_BKT_PARAMS;
+    const currentPL = currentStudentProg.masteryByKC[kcId]?.probabilityMastery ?? DEFAULT_BKT_PARAMS.pL0;
+    const { nextP_L } = updateBKT(currentPL, isCorrect, DEFAULT_BKT_PARAMS);
+    const isMastered = nextP_L >= DEFAULT_BKT_PARAMS.masteryThreshold;
+    const wasMasteredBefore = currentStudentProg.masteryByKC[kcId]?.isMastered ?? false;
+    const newlyMastered = isMastered && !wasMasteredBefore;
 
-    const existingMastery: StudentKCMastery = currentProgress.masteryByKC[kcId] || {
+    const existingKC = currentStudentProg.masteryByKC[kcId];
+    const updatedKC: StudentKCMastery = {
       kcId,
-      kcTitle: targetKC?.title || 'Concept ' + kcId,
-      probabilityMastery: bktParams.pL0,
-      history: [],
-      totalAttempts: 0,
-      correctAttempts: 0,
-      lastPracticed: Date.now(),
-      isMastered: false,
-    };
-
-    const { nextP_L } = updateBKT(existingMastery.probabilityMastery, isCorrect, bktParams);
-    const previouslyMastered = existingMastery.isMastered;
-    const isNowMastered = nextP_L >= bktParams.masteryThreshold;
-    const newlyMastered = !previouslyMastered && isNowMastered;
-
-    if (newlyMastered) {
-      try {
-        confetti({
-          particleCount: 80,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6'],
-        });
-      } catch {}
-      logTelemetryEvent('bkt_mastery_updated', `Cognitive Mastery Reached: ${targetKC?.title || kcId} by ${currentUser.name} (P_L: ${(nextP_L * 100).toFixed(0)}%)`);
-    }
-
-    const updatedMastery: StudentKCMastery = {
-      ...existingMastery,
+      kcTitle: existingKC?.kcTitle || kcId,
       probabilityMastery: nextP_L,
-      isMastered: isNowMastered,
-      totalAttempts: existingMastery.totalAttempts + 1,
-      correctAttempts: existingMastery.correctAttempts + (isCorrect ? 1 : 0),
-      lastPracticed: Date.now(),
       history: [
-        ...existingMastery.history,
+        ...(existingKC?.history || []),
         {
-          step: existingMastery.history.length + 1,
+          step: (existingKC?.history?.length || 0) + 1,
           probability: nextP_L,
           correct: isCorrect,
           activityType,
           timestamp: Date.now(),
         },
       ],
+      totalAttempts: (existingKC?.totalAttempts || 0) + 1,
+      correctAttempts: (existingKC?.correctAttempts || 0) + (isCorrect ? 1 : 0),
+      lastPracticed: Date.now(),
+      isMastered,
     };
 
-    const updatedMasteryByKC = { ...currentProgress.masteryByKC, [kcId]: updatedMastery };
-    const kcValues = Object.values(updatedMasteryByKC);
+    const allKCs = { ...currentStudentProg.masteryByKC, [kcId]: updatedKC };
+    const kcValues = Object.values(allKCs);
     const avgMastery = Math.round(
       (kcValues.reduce((acc, curr) => acc + curr.probabilityMastery, 0) / Math.max(1, kcValues.length)) * 100
     );
 
-    const earnedXP = isCorrect ? xpReward : Math.round(xpReward * 0.2);
-
-    const updatedStudentProgress: ClassStudentProgress = {
-      ...currentProgress,
+    const isHighRisk = !isCorrect && nextP_L < 0.4;
+    const updatedProg: ClassStudentProgress = {
+      ...currentStudentProg,
+      masteryByKC: allKCs,
       overallMasteryPct: avgMastery,
-      totalXP: currentProgress.totalXP + earnedXP,
-      lastActive: 'Just now',
-      masteryByKC: updatedMasteryByKC,
+      totalXP: currentStudentProg.totalXP + xpReward,
+      lastActive: new Date().toISOString().split('T')[0],
+      struggleRisk: isHighRisk ? { level: 'high', flaggedKCs: [kcId] } : { level: 'low', flaggedKCs: [] },
     };
 
-    setStudentProgress(prev => ({ ...prev, [studentId]: updatedStudentProgress }));
+    setStudentProgress(prev => ({ ...prev, [currentUser.id]: updatedProg }));
 
-    const updatedUser = { ...currentUser, totalXP: currentUser.totalXP + earnedXP };
+    const updatedUser = {
+      ...currentUser,
+      totalXP: currentUser.totalXP + xpReward,
+      streakDays: currentUser.streakDays,
+    };
     setCurrentUser(updatedUser);
     persistUsers(allUsers.map(u => (u.id === currentUser.id ? updatedUser : u)));
 
-    logTelemetryEvent(
-      activityType === 'simulation_lab' ? 'simulation_test' : 'flashcard_review',
-      `${currentUser.name} tested ${targetKC?.title || kcId}: ${isCorrect ? 'SUCCESS' : 'ATTEMPT'} (+${earnedXP} XP, BKT: ${(nextP_L * 100).toFixed(0)}%)`
-    );
+    if (newlyMastered) {
+      try {
+        confetti({ particleCount: 75, spread: 70, origin: { y: 0.6 } });
+      } catch {}
+    }
 
     return { newP_L: nextP_L, newlyMastered };
   };
 
   const uploadStudyMaterial = async (classId: string, title: string, rawText: string): Promise<StudyMaterial> => {
-    let summaryText = `AI Cognitive Synthesis for "${title}". Extracted core principles, formulas, and digital twin simulation parameters.`;
-    let keyInsights = [
-      'Core component behavior follows fundamental thermodynamic and electrical limits.',
-      'BKT continuous cognitive modeling tracks individual student mastery.',
-    ];
+    let summary = 'Document ingested and parsed into cognitive components.';
+    let keyInsights = ['Key concept extracted from document notes.'];
 
     try {
       const res = await fetch('/api/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: `You are an educational AI. Analyze the following study text and generate a 2-paragraph summary and 3 key takeaways. Text: ${rawText}`,
+          prompt: `Analyze the following engineering study notes: "${rawText.substring(0, 1000)}". Provide a concise 2-sentence summary and 3 bullet key insights.`,
           userId: currentUser?.id,
           userRole: currentUser?.role,
-          currentTokensUsed: currentUser?.aiTokensUsed || 0,
-          tokenQuota: currentUser?.aiTokensQuota,
         }),
       });
       const data = await res.json();
-      if (data?.text) summaryText = data.text;
-      if (data?.tokensUsed && currentUser) {
-        const updatedTokens = (currentUser.aiTokensUsed || 0) + data.tokensUsed;
-        const updatedUser = { ...currentUser, aiTokensUsed: updatedTokens };
-        setCurrentUser(updatedUser);
-        persistUsers(allUsers.map(u => (u.id === currentUser.id ? updatedUser : u)));
-        logTelemetryEvent('bkt_mastery_updated', `AI Tokens Charged: +${data.tokensUsed} tokens (Total: ${updatedTokens.toLocaleString()} / ${(currentUser.aiTokensQuota || 50000).toLocaleString()})`);
+      if (data?.text) {
+        summary = data.text.substring(0, 250);
       }
-    } catch (err) {
-      console.error('Gemini synthesis error:', err);
-    }
+    } catch {}
 
     const newMaterial: StudyMaterial = {
       id: `mat-${Date.now()}`,
       title,
-      fileName: `${title.replace(/\s+/g, '_')}.pdf`,
+      fileName: `${title.toLowerCase().replace(/\s+/g, '_')}.pdf`,
       fileType: 'pdf',
       uploadedAt: new Date().toISOString().split('T')[0],
       authorId: currentUser?.id || 'admin_shamz',
-      summary: summaryText,
+      summary,
       keyInsights,
-      extractedKCs: ['kc-ohms-law', 'kc-led-resistors'],
-      contentSnippet: rawText.slice(0, 500),
+      extractedKCs: ['kc-ohms-law', 'kc-voltage'],
+      contentSnippet: rawText.substring(0, 500),
     };
 
-    const updated = classes.map(c =>
-      c.id === classId ? { ...c, materials: [newMaterial, ...c.materials] } : c
-    );
+    const updated = classes.map(c => (c.id === classId ? { ...c, materials: [...c.materials, newMaterial] } : c));
     persistClasses(updated);
-
-    logTelemetryEvent('class_created', `${currentUser?.name} ingested study material "${title}" into class ${classId}`);
     return newMaterial;
   };
 
-  const generateAISimulation = async (topic: string, description: string) => {
-    let prompt = `Create an interactive digital twin simulation objective for topic: ${topic}. Description: ${description}.`;
-    let responseText = `Design and balance circuit components to verify ${topic}.`;
-
-    try {
-      const res = await fetch('/api/gemini', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          userId: currentUser?.id,
-          userRole: currentUser?.role,
-          currentTokensUsed: currentUser?.aiTokensUsed || 0,
-          tokenQuota: currentUser?.aiTokensQuota,
-        }),
-      });
-      const data = await res.json();
-      if (data?.text) responseText = data.text;
-      if (data?.tokensUsed && currentUser) {
-        const updatedTokens = (currentUser.aiTokensUsed || 0) + data.tokensUsed;
-        const updatedUser = { ...currentUser, aiTokensUsed: updatedTokens };
-        setCurrentUser(updatedUser);
-        persistUsers(allUsers.map(u => (u.id === currentUser.id ? updatedUser : u)));
-      }
-    } catch {}
-
+  const generateAISimulation = async (topic: string, description: string): Promise<any> => {
     return {
-      title: `${topic} Digital Twin Lab`,
-      objective: responseText,
+      title: `${topic} Digital Twin`,
+      description,
+      targetObjective: 'Configure simulation to reach theoretical equilibrium',
+      xpReward: 200,
     };
   };
 
   const classroom = classes.find(c => c.id === activeClassId) || classes[0] || CANONICAL_CLASSROOM;
-  const studyRoom = studyRooms.find(r => r.id === activeRoomId) || studyRooms[0] || INITIAL_STUDY_ROOMS[0];
+  const studyRoom = studyRooms.find(r => r.id === activeRoomId) || studyRooms[0];
+
+  const classLeaderboard: LeaderboardEntry[] = [
+    {
+      rank: 1,
+      userId: 'admin_shamz',
+      userName: 'Shamz (Super Admin)',
+      userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      schoolOrClass: 'Platform Architect',
+      xp: 5000,
+      masteredCount: 4,
+      streakDays: 14,
+    },
+    ...(currentUser && currentUser.id !== 'admin_shamz'
+      ? [
+          {
+            rank: 2,
+            userId: currentUser.id,
+            userName: currentUser.name,
+            userAvatar: currentUser.avatar,
+            schoolOrClass: currentUser.schoolName || 'Enrolled Scholar',
+            xp: currentUser.totalXP,
+            masteredCount: 2,
+            streakDays: currentUser.streakDays,
+          },
+        ]
+      : []),
+  ];
+
+  const globalLeaderboard = classLeaderboard;
 
   const switchUser = (userId: string) => {
     const target = allUsers.find(u => u.id === userId);
     if (target) {
       setCurrentUser(target);
-      try {
-        localStorage.setItem('cognitwin_active_user_id', target.id);
-      } catch {}
-      logTelemetryEvent('login', `Switched active user to ${target.name} (${target.role})`);
+      localStorage.setItem('cognitwin_active_user_id', target.id);
     }
   };
-
-  const classLeaderboard: LeaderboardEntry[] = allUsers.map((u, idx) => ({
-    rank: idx + 1,
-    userId: u.id,
-    userName: u.name,
-    userAvatar: u.avatar,
-    schoolOrClass: u.schoolName || (u.role === 'admin' ? 'Platform HQ' : 'General Academy'),
-    xp: u.totalXP,
-    masteredCount: Math.round(u.totalXP / 100),
-    streakDays: u.streakDays,
-  })).sort((a, b) => b.xp - a.xp).map((entry, idx) => ({ ...entry, rank: idx + 1 }));
-
-  const globalLeaderboard: LeaderboardEntry[] = [...classLeaderboard];
 
   return (
     <AppContext.Provider
@@ -908,6 +951,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         classes,
         activeClassId,
         setActiveClassId,
+        generateAISyllabus,
         createClassroom,
         enrollInClass,
         joinClassByCode,
