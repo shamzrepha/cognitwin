@@ -16,4 +16,10 @@ export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 export const githubProvider = new GithubAuthProvider();
 export const db = getFirestore(app);
+export const isFirebaseConfigured = Boolean(
+  process.env.NEXT_PUBLIC_FIREBASE_API_KEY &&
+  process.env.NEXT_PUBLIC_FIREBASE_API_KEY !== 'demo-api-key' &&
+  process.env.NEXT_PUBLIC_FIREBASE_API_KEY.startsWith('AIza')
+);
+
 export default app;

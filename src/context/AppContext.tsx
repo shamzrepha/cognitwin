@@ -24,7 +24,7 @@ import {
   CANONICAL_KCS,
 } from '@/lib/mockData';
 import { updateBKT, DEFAULT_BKT_PARAMS, StudentKCMastery } from '@/lib/bkt';
-import { auth, googleProvider, githubProvider, db } from '@/lib/firebase';
+import { auth, googleProvider, githubProvider, db, isFirebaseConfigured } from '@/lib/firebase';
 import { signInWithPopup } from 'firebase/auth';
 
 export function getUserIdFromEmail(email: string): string {
@@ -460,19 +460,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let realName = fallbackName?.trim() || '';
     let realAvatar = '';
 
-    // If no direct email provided, try Firebase Google Auth Popup first
+    // If no direct email provided, only attempt Firebase popup if Firebase has a valid production key
     if (!cleanEmail) {
-      try {
-        const result = await signInWithPopup(auth, googleProvider);
-        const fbUser = result.user;
-        cleanEmail = (fbUser.email || '').toLowerCase().trim();
-        realName = fbUser.displayName || '';
-        realAvatar = fbUser.photoURL || '';
-      } catch (error: any) {
-        if (error?.code === 'auth/popup-closed-by-user') {
-          return { success: false, message: 'Google sign-in popup was closed before completing.' };
+      if (isFirebaseConfigured) {
+        try {
+          const result = await signInWithPopup(auth, googleProvider);
+          const fbUser = result.user;
+          cleanEmail = (fbUser.email || '').toLowerCase().trim();
+          realName = fbUser.displayName || '';
+          realAvatar = fbUser.photoURL || '';
+        } catch (error: any) {
+          if (error?.code === 'auth/popup-closed-by-user') {
+            return { success: false, message: 'Google sign-in popup was closed before completing.' };
+          }
+          // Popup failed or API key was rejected; seamlessly prompt for Google email directly without showing raw error
+          return {
+            success: false,
+            fallbackRequired: true,
+            message: 'Please enter your Google (Gmail) address to authenticate directly.',
+          };
         }
-        // Popup or API credentials not available; return fallbackRequired so UI opens quick email confirm
+      } else {
+        // Firebase client key not configured; seamlessly signal UI to collect Google email directly
         return {
           success: false,
           fallbackRequired: true,
@@ -564,6 +573,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loginWithGithub = async (selectedRole?: UserRole): Promise<{ success: boolean; message: string }> => {
+    if (!isFirebaseConfigured) {
+      return {
+        success: false,
+        message: 'GitHub sign-in is disabled in this environment. Please use Google or Email sign-in.',
+      };
+    }
     try {
       const result = await signInWithPopup(auth, githubProvider);
       const fbUser = result.user;

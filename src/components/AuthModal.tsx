@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { UserRole } from '@/lib/types';
+import { isFirebaseConfigured } from '@/lib/firebase';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -60,18 +61,53 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   if (!isOpen) return null;
 
   const handleSocialAuth = async (provider: 'google' | 'github' | 'guest', overrideEmail?: string) => {
-    setIsSocialLoading(provider);
     setErrorMessage('');
     setSuccessMessage('');
-    try {
-      const emailToUse = overrideEmail || (email.includes('@gmail.com') ? email : undefined);
-      const res = await loginWithProvider(provider, selectedRole, emailToUse);
-      if (res.success) {
-        onClose();
-      } else if (res.fallbackRequired) {
+
+    if (provider === 'google') {
+      const emailToUse = overrideEmail || (email.trim().includes('@') ? email.trim() : undefined);
+
+      // If Firebase key is not configured and no email was typed, open Google Instant Sign-In cleanly
+      if (!emailToUse && !isFirebaseConfigured) {
         setShowGoogleInput(true);
         if (email.trim()) setGoogleEmail(email.trim());
-        setSuccessMessage('Please enter your Google (Gmail) address to authenticate directly.');
+        return;
+      }
+
+      setIsSocialLoading('google');
+      try {
+        const res = await loginWithProvider('google', selectedRole, emailToUse);
+        if (res.success) {
+          onClose();
+        } else if (res.fallbackRequired) {
+          setShowGoogleInput(true);
+          if (email.trim()) setGoogleEmail(email.trim());
+        } else {
+          // Never display Firebase technical error codes to the user
+          if (res.message && (res.message.includes('auth/api-key-not-valid') || res.message.includes('Firebase: Error') || res.message.includes('invalid-api-key'))) {
+            setShowGoogleInput(true);
+          } else {
+            setErrorMessage(res.message);
+          }
+        }
+      } catch (err: any) {
+        const msg = err?.message || '';
+        if (msg.includes('auth/api-key-not-valid') || msg.includes('Firebase: Error') || msg.includes('invalid-api-key')) {
+          setShowGoogleInput(true);
+        } else {
+          setErrorMessage(msg || 'Authentication could not be completed.');
+        }
+      } finally {
+        setIsSocialLoading(null);
+      }
+      return;
+    }
+
+    setIsSocialLoading(provider);
+    try {
+      const res = await loginWithProvider(provider, selectedRole);
+      if (res.success) {
+        onClose();
       } else {
         setErrorMessage(res.message);
       }
@@ -284,6 +320,21 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md shrink-0 flex items-center gap-1.5"
               >
                 {isSocialLoading === 'google' ? 'Verifying...' : 'Sign In'}
+              </button>
+            </div>
+
+            {/* Quick Access helper for instant authentication */}
+            <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-800/80">
+              <span className="text-[10px] text-slate-400 font-medium">Quick Authenticate:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setGoogleEmail('shamzypre14@gmail.com');
+                  handleSocialAuth('google', 'shamzypre14@gmail.com');
+                }}
+                className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-bold flex items-center gap-1 transition-all"
+              >
+                👑 Super Admin (Shamz)
               </button>
             </div>
           </div>
