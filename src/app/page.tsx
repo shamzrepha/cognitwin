@@ -9,17 +9,24 @@ import NotebookStudio from '@/components/NotebookStudio';
 import StudyRoomView from '@/components/StudyRoomView';
 import LeaderboardView from '@/components/LeaderboardView';
 import TeacherDashboard from '@/components/TeacherDashboard';
-import { Brain, Sparkles, BookOpen, Zap, Users, Shield } from 'lucide-react';
+import AdminDashboard from '@/components/AdminDashboard';
+import AuthModal from '@/components/AuthModal';
+import { Brain } from 'lucide-react';
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'workbench' | 'notebook' | 'room' | 'leaderboard' | 'teacher'
+    'dashboard' | 'workbench' | 'notebook' | 'room' | 'leaderboard' | 'teacher' | 'admin'
   >('dashboard');
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
       {/* Top Navbar */}
-      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Navbar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onOpenAuth={() => setIsAuthOpen(true)}
+      />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -31,7 +38,11 @@ function MainApp() {
         )}
         {activeTab === 'leaderboard' && <LeaderboardView />}
         {activeTab === 'teacher' && <TeacherDashboard />}
+        {activeTab === 'admin' && <AdminDashboard />}
       </main>
+
+      {/* Auth Modal */}
+      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-slate-950 py-8 mt-12 text-xs text-slate-400">
@@ -45,9 +56,9 @@ function MainApp() {
           <div className="flex items-center gap-6 text-[11px] text-slate-400">
             <span>Hidden Markov Model BKT Engine</span>
             <span>•</span>
-            <span>NotebookLM Grounded Synthesis</span>
+            <span>Super Admin Telemetry Monitor</span>
             <span>•</span>
-            <span>Real-time Interactive Circuits</span>
+            <span>Live Interactive Circuit Workbench</span>
           </div>
         </div>
       </footer>

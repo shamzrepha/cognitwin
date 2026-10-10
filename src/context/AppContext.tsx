@@ -12,9 +12,12 @@ import {
   Flashcard,
   QuizQuestion,
   KnowledgeComponent,
+  UserRole,
+  SystemTelemetryEvent,
 } from '@/lib/types';
 import {
   MOCK_USERS,
+  INITIAL_ADMIN_USER,
   MOCK_CLASSROOM,
   MOCK_STUDY_ROOM,
   MOCK_STUDENT_PROGRESS,
@@ -29,7 +32,23 @@ import { updateBKT, DEFAULT_BKT_PARAMS, StudentKCMastery } from '@/lib/bkt';
 
 interface AppContextType {
   currentUser: UserProfile;
+  allUsers: UserProfile[];
+  telemetryLogs: SystemTelemetryEvent[];
   switchUser: (userId: string) => void;
+  registerUser: (
+    name: string,
+    email: string,
+    password?: string,
+    role?: UserRole
+  ) => { success: boolean; message: string; user?: UserProfile };
+  loginUser: (email: string, password?: string) => { success: boolean; message: string };
+  logoutUser: () => void;
+  deleteUser: (userId: string) => void;
+  logTelemetryEvent: (
+    eventType: SystemTelemetryEvent['eventType'],
+    description: string,
+    metadata?: Record<string, any>
+  ) => void;
   classroom: Classroom;
   studyRoom: StudyRoom;
   studentProgress: Record<string, ClassStudentProgress>;
@@ -52,34 +71,208 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  // Current user (defaults to Leo Chen - Student)
-  const [currentUser, setCurrentUser] = useState<UserProfile>(MOCK_USERS.student_leo);
+  // Current user defaults to Super Administrator Shamz
+  const [currentUser, setCurrentUser] = useState<UserProfile>(INITIAL_ADMIN_USER);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([INITIAL_ADMIN_USER]);
+  const [telemetryLogs, setTelemetryLogs] = useState<SystemTelemetryEvent[]>([
+    {
+      id: 'tel-init-1',
+      timestamp: 1760100000000,
+      userId: 'admin_shamz',
+      userName: 'Shamz',
+      userRole: 'admin',
+      eventType: 'admin_action',
+      description: 'Super Administrator initialized CogniTwin cognitive production environment.',
+    },
+  ]);
+
   const [classroom, setClassroom] = useState<Classroom>(MOCK_CLASSROOM);
   const [studyRoom, setStudyRoom] = useState<StudyRoom>(MOCK_STUDY_ROOM);
   const [studentProgress, setStudentProgress] = useState<Record<string, ClassStudentProgress>>(MOCK_STUDENT_PROGRESS);
   const [classLeaderboard, setClassLeaderboard] = useState<LeaderboardEntry[]>(MOCK_CLASS_LEADERBOARD);
   const [globalLeaderboard, setGlobalLeaderboard] = useState<LeaderboardEntry[]>(MOCK_GLOBAL_LEADERBOARD);
 
-  // Initialize or load from LocalStorage if browser available
+  // Initialize and hydrate real users from LocalStorage
   useEffect(() => {
     try {
-      const savedUser = localStorage.getItem('cognitwin_user_id');
-      if (savedUser && MOCK_USERS[savedUser]) {
-        setCurrentUser(MOCK_USERS[savedUser]);
+      const savedUsersJson = localStorage.getItem('cognitwin_registered_users_v2');
+      if (savedUsersJson) {
+        const parsed = JSON.parse(savedUsersJson);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setAllUsers(parsed);
+        }
+      }
+
+      const savedLogsJson = localStorage.getItem('cognitwin_telemetry_events_v2');
+      if (savedLogsJson) {
+        const parsedLogs = JSON.parse(savedLogsJson);
+        if (Array.isArray(parsedLogs)) {
+          setTelemetryLogs(parsedLogs);
+        }
+      }
+
+      const activeUserId = localStorage.getItem('cognitwin_active_user_id');
+      if (activeUserId) {
+        const usersList: UserProfile[] = savedUsersJson ? JSON.parse(savedUsersJson) : [INITIAL_ADMIN_USER];
+        const match = usersList.find(u => u.id === activeUserId);
+        if (match) {
+          setCurrentUser(match);
+        }
       }
     } catch {
       // Fallback
     }
   }, []);
 
+  const persistUsers = (users: UserProfile[]) => {
+    setAllUsers(users);
+    try {
+      localStorage.setItem('cognitwin_registered_users_v2', JSON.stringify(users));
+    } catch {
+      // Fallback
+    }
+  };
+
+  const persistLogs = (logs: SystemTelemetryEvent[]) => {
+    setTelemetryLogs(logs);
+    try {
+      localStorage.setItem('cognitwin_telemetry_events_v2', JSON.stringify(logs.slice(0, 100)));
+    } catch {
+      // Fallback
+    }
+  };
+
+  const logTelemetryEvent = (
+    eventType: SystemTelemetryEvent['eventType'],
+    description: string,
+    metadata?: Record<string, any>
+  ) => {
+    const newEvent: SystemTelemetryEvent = {
+      id: `tel-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: Date.now(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userRole: currentUser.role,
+      eventType,
+      description,
+      metadata,
+    };
+
+    setTelemetryLogs(prev => {
+      const updated = [newEvent, ...prev];
+      persistLogs(updated);
+      return updated;
+    });
+  };
+
+  const registerUser = (
+    name: string,
+    email: string,
+    password = 'password',
+    role: UserRole = 'student'
+  ): { success: boolean; message: string; user?: UserProfile } => {
+    const existing = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (existing) {
+      return { success: false, message: 'An account with this email already exists.' };
+    }
+
+    const newUser: UserProfile = {
+      id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name,
+      email,
+      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
+      role,
+      password,
+      schoolName: role === 'student' ? 'Enrolled Student' : role === 'teacher' ? 'Faculty Lead' : 'Self-Directed Scholar',
+      streakDays: 1,
+      streakFrozen: false,
+      totalXP: 100,
+      level: 1,
+      badges: [
+        {
+          id: 'b_welcome',
+          name: 'Pioneer Scholar',
+          description: 'Joined CogniTwin AI Learning Platform',
+          icon: '🚀',
+          category: 'social',
+        },
+      ],
+      registeredAt: new Date().toISOString().split('T')[0],
+    };
+
+    const updatedList = [...allUsers, newUser];
+    persistUsers(updatedList);
+    setCurrentUser(newUser);
+
+    try {
+      localStorage.setItem('cognitwin_active_user_id', newUser.id);
+    } catch {}
+
+    // Add to leaderboard
+    setClassLeaderboard(prev => [
+      ...prev,
+      {
+        rank: prev.length + 1,
+        userId: newUser.id,
+        userName: newUser.name,
+        userAvatar: newUser.avatar,
+        schoolOrClass: newUser.schoolName || 'Enrolled',
+        xp: newUser.totalXP,
+        masteredCount: 0,
+        streakDays: newUser.streakDays,
+      },
+    ]);
+
+    logTelemetryEvent('signup', `New real ${role} account registered: ${name} (${email})`);
+
+    return { success: true, message: 'Registration successful!', user: newUser };
+  };
+
+  const loginUser = (email: string, password = ''): { success: boolean; message: string } => {
+    const user = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      return { success: false, message: 'No registered user found with that email.' };
+    }
+
+    setCurrentUser(user);
+    try {
+      localStorage.setItem('cognitwin_active_user_id', user.id);
+    } catch {}
+
+    logTelemetryEvent('login', `User logged in: ${user.name} (${user.role})`);
+    return { success: true, message: 'Signed in successfully!' };
+  };
+
+  const logoutUser = () => {
+    // Return to Super Admin Shamz
+    setCurrentUser(INITIAL_ADMIN_USER);
+    try {
+      localStorage.setItem('cognitwin_active_user_id', INITIAL_ADMIN_USER.id);
+    } catch {}
+    logTelemetryEvent('admin_action', 'Session switched to Super Admin Shamz');
+  };
+
+  const deleteUser = (userId: string) => {
+    if (userId === INITIAL_ADMIN_USER.id) return; // Cannot delete super admin
+    const target = allUsers.find(u => u.id === userId);
+    const updated = allUsers.filter(u => u.id !== userId);
+    persistUsers(updated);
+
+    if (currentUser.id === userId) {
+      setCurrentUser(INITIAL_ADMIN_USER);
+    }
+
+    logTelemetryEvent('admin_action', `Admin deleted user record: ${target?.name || userId}`);
+  };
+
   const switchUser = (userId: string) => {
-    if (MOCK_USERS[userId]) {
-      setCurrentUser(MOCK_USERS[userId]);
+    const user = allUsers.find(u => u.id === userId);
+    if (user) {
+      setCurrentUser(user);
       try {
-        localStorage.setItem('cognitwin_user_id', userId);
-      } catch {
-        // Fallback
-      }
+        localStorage.setItem('cognitwin_active_user_id', userId);
+      } catch {}
+      logTelemetryEvent('login', `Switched active role to: ${user.name} (${user.role})`);
     }
   };
 
@@ -120,13 +313,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isMastered: false,
     };
 
-    // Calculate BKT posterior and next state
     const { nextP_L } = updateBKT(existingMastery.probabilityMastery, isCorrect, bktParams);
     const previouslyMastered = existingMastery.isMastered;
     const isNowMastered = nextP_L >= bktParams.masteryThreshold;
     const newlyMastered = !previouslyMastered && isNowMastered;
 
-    // Trigger celebration if newly mastered!
     if (newlyMastered) {
       try {
         confetti({
@@ -135,9 +326,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           origin: { y: 0.6 },
           colors: ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6'],
         });
-      } catch {
-        // ignore in non-browser
-      }
+      } catch {}
+      logTelemetryEvent(
+        'bkt_mastery_updated',
+        `Cognitive Mastery Reached: ${targetKC?.title || kcId} by ${currentUser.name} (P_L: ${(nextP_L * 100).toFixed(0)}%)`
+      );
     }
 
     const updatedMastery: StudentKCMastery = {
@@ -159,7 +352,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       ],
     };
 
-    // Calculate new overall mastery average
     const updatedMasteryByKC = {
       ...currentProgress.masteryByKC,
       [kcId]: updatedMastery,
@@ -185,13 +377,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       [studentId]: updatedStudentProgress,
     }));
 
-    // Update currentUser XP
     setCurrentUser(prev => ({
       ...prev,
       totalXP: prev.totalXP + earnedXP,
     }));
 
-    // Update Leaderboard dynamically
+    // Update in allUsers list
+    persistUsers(allUsers.map(u => (u.id === currentUser.id ? { ...u, totalXP: u.totalXP + earnedXP } : u)));
+
+    // Update Leaderboard
     setClassLeaderboard(prev =>
       prev
         .map(entry =>
@@ -207,14 +401,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .map((entry, idx) => ({ ...entry, rank: idx + 1 }))
     );
 
+    logTelemetryEvent(
+      activityType === 'simulation_lab' ? 'simulation_test' : 'flashcard_review',
+      `${currentUser.name} practiced ${targetKC?.title || kcId}: ${isCorrect ? 'SUCCESS' : 'ATTEMPT'} (+${earnedXP} XP, BKT: ${(nextP_L * 100).toFixed(0)}%)`
+    );
+
     return { newP_L: nextP_L, newlyMastered };
   };
 
-  /**
-   * NotebookLM Document Ingestion: AI parsing & auto-synthesis simulation
-   */
   const uploadStudyMaterial = async (title: string, rawText: string): Promise<StudyMaterial> => {
-    // Simulate AI chunking and generation
     const newDocId = `mat-${Date.now()}`;
     const newMaterial: StudyMaterial = {
       id: newDocId,
@@ -229,11 +424,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         'Dynamic resistance characteristics dictate series protection requirements.',
         'BKT cognitive tracking guarantees mastery before advanced node analysis.',
       ],
+      briefingDoc: `Executive briefing generated for "${title}". Grounded strictly in uploaded curriculum.`,
+      audioOverview: [
+        {
+          id: `aud-${Date.now()}-1`,
+          speaker: 'Host (Alex)',
+          text: `Welcome to the deep dive on ${title}. Today we are breaking down the core principles!`,
+          pitch: 1.1,
+          rate: 1.05,
+        },
+        {
+          id: `aud-${Date.now()}-2`,
+          speaker: 'Expert (Dr. Sam)',
+          text: `It is an essential topic. Let us examine how the mathematical formulas relate to the practical workbench simulations.`,
+          pitch: 0.9,
+          rate: 0.95,
+        },
+      ],
       extractedKCs: ['kc-voltage', 'kc-current', 'kc-ohms-law', 'kc-led-resistors'],
       contentSnippet: rawText || 'Extracted document corpus for AI grounding and Socratic dialogue...',
     };
 
-    // Auto-generate a new flashcard based on material
     const autoCard: Flashcard = {
       id: `fc-auto-${Date.now()}`,
       kcId: 'kc-led-resistors',
@@ -243,7 +454,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       citation: `${newMaterial.fileName}, §AI-Extracted`,
     };
 
-    // Auto-generate a diagnostic quiz question
     const autoQuiz: QuizQuestion = {
       id: `q-auto-${Date.now()}`,
       kcId: 'kc-ohms-law',
@@ -260,6 +470,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       flashcards: [autoCard, ...prev.flashcards],
       quizzes: [autoQuiz, ...prev.quizzes],
     }));
+
+    logTelemetryEvent('class_created', `${currentUser.name} uploaded and processed study material: "${title}"`);
 
     return newMaterial;
   };
@@ -283,6 +495,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString().split('T')[0],
     };
     setClassroom(newClass);
+    logTelemetryEvent('class_created', `${currentUser.name} created classroom "${name}" with code [${code}]`);
     return newClass;
   };
 
@@ -294,6 +507,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           enrolledStudentIds: [...prev.enrolledStudentIds, currentUser.id],
         }));
       }
+      logTelemetryEvent('login', `${currentUser.name} enrolled in classroom ${classroom.name}`);
       return true;
     }
     return false;
@@ -323,6 +537,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString().split('T')[0],
     };
     setStudyRoom(newRoom);
+    logTelemetryEvent('class_created', `${currentUser.name} opened peer study lounge "${name}" with code [${code}]`);
     return newRoom;
   };
 
@@ -337,7 +552,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider
       value={{
         currentUser,
+        allUsers,
+        telemetryLogs,
         switchUser,
+        registerUser,
+        loginUser,
+        logoutUser,
+        deleteUser,
+        logTelemetryEvent,
         classroom,
         studyRoom,
         studentProgress,

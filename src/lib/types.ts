@@ -1,6 +1,6 @@
 import { BKTParameters, StudentKCMastery } from './bkt';
 
-export type UserRole = 'teacher' | 'student' | 'individual';
+export type UserRole = 'admin' | 'teacher' | 'student' | 'individual';
 
 export interface UserProfile {
   id: string;
@@ -8,12 +8,34 @@ export interface UserProfile {
   email: string;
   avatar: string;
   role: UserRole;
+  password?: string;
   schoolName?: string;
   streakDays: number;
   streakFrozen: boolean;
   totalXP: number;
   level: number;
   badges: Badge[];
+  registeredAt?: string;
+}
+
+export interface SystemTelemetryEvent {
+  id: string;
+  timestamp: number;
+  userId: string;
+  userName: string;
+  userRole: string;
+  eventType:
+    | 'signup'
+    | 'login'
+    | 'simulation_test'
+    | 'led_burnout'
+    | 'challenge_complete'
+    | 'flashcard_review'
+    | 'bkt_mastery_updated'
+    | 'class_created'
+    | 'admin_action';
+  description: string;
+  metadata?: Record<string, any>;
 }
 
 export interface Badge {
