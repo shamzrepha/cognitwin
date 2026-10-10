@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppProvider, useApp } from '@/context/AppContext';
 import Navbar from '@/components/Navbar';
 import StudentDashboard from '@/components/StudentDashboard';
@@ -13,7 +13,7 @@ import TeacherDashboard from '@/components/TeacherDashboard';
 import AdminDashboard from '@/components/AdminDashboard';
 import LandingPage from '@/components/LandingPage';
 import AuthModal from '@/components/AuthModal';
-import { Brain } from 'lucide-react';
+import { Brain, ShieldAlert } from 'lucide-react';
 
 function MainApp() {
   const { currentUser } = useApp();
@@ -21,6 +21,23 @@ function MainApp() {
     'classes' | 'dashboard' | 'workbench' | 'notebook' | 'room' | 'leaderboard' | 'teacher' | 'admin'
   >('classes');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  const isAdmin =
+    currentUser?.role === 'admin' ||
+    currentUser?.id === 'admin_shamz' ||
+    currentUser?.email?.toLowerCase() === 'shamzypre14@gmail.com';
+
+  const isTeacher = currentUser?.role === 'teacher' || isAdmin;
+
+  // Auto-protect routes if role changes
+  useEffect(() => {
+    if (activeTab === 'admin' && !isAdmin) {
+      setActiveTab('classes');
+    }
+    if (activeTab === 'teacher' && !isTeacher) {
+      setActiveTab('classes');
+    }
+  }, [activeTab, isAdmin, isTeacher]);
 
   // If user is not logged in, gate with the clean public startup Landing Page
   if (!currentUser) {
@@ -54,8 +71,36 @@ function MainApp() {
           <StudyRoomView onOpenWorkbench={() => setActiveTab('workbench')} />
         )}
         {activeTab === 'leaderboard' && <LeaderboardView />}
-        {activeTab === 'teacher' && <TeacherDashboard />}
-        {activeTab === 'admin' && <AdminDashboard />}
+        
+        {/* Strictly Guarded Teacher Dashboard */}
+        {activeTab === 'teacher' && (
+          isTeacher ? (
+            <TeacherDashboard />
+          ) : (
+            <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-2xl">
+              <ShieldAlert className="w-8 h-8 text-amber-400 mx-auto mb-2" />
+              <h3 className="text-base font-bold text-white">Teacher Permissions Required</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Your current account does not have instructor privileges.
+              </p>
+            </div>
+          )
+        )}
+
+        {/* Strictly Guarded Admin Dashboard */}
+        {activeTab === 'admin' && (
+          isAdmin ? (
+            <AdminDashboard />
+          ) : (
+            <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-2xl">
+              <ShieldAlert className="w-8 h-8 text-rose-400 mx-auto mb-2" />
+              <h3 className="text-base font-bold text-white">Super Admin Access Denied</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                This command area is strictly reserved for the system administrator.
+              </p>
+            </div>
+          )
+        )}
       </main>
 
       {/* Auth Modal */}
@@ -75,7 +120,7 @@ function MainApp() {
             <span>•</span>
             <span>Super Admin Telemetry Monitor</span>
             <span>•</span>
-            <span>Live Interactive Circuit Workbench</span>
+            <span>In-Class Topic Simulations</span>
           </div>
         </div>
       </footer>

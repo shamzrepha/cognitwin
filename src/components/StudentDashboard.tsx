@@ -18,7 +18,7 @@ import { useApp } from '@/context/AppContext';
 import { getCognitiveTier } from '@/lib/bkt';
 
 interface StudentDashboardProps {
-  onNavigate: (tab: 'workbench' | 'notebook' | 'room' | 'leaderboard') => void;
+  onNavigate: (tab: 'classes' | 'workbench' | 'notebook' | 'room' | 'leaderboard') => void;
 }
 
 export default function StudentDashboard({ onNavigate }: StudentDashboardProps) {
@@ -131,18 +131,18 @@ export default function StudentDashboard({ onNavigate }: StudentDashboardProps) 
         </div>
 
         <button
-          onClick={() => onNavigate('workbench')}
+          onClick={() => onNavigate('classes')}
           className="self-start md:self-auto px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all shrink-0"
         >
-          <Zap className="w-4 h-4" /> Start Workbench Lab <ArrowRight className="w-4 h-4" />
+          <Zap className="w-4 h-4" /> Go to Class Topic Lab <ArrowRight className="w-4 h-4" />
         </button>
       </div>
 
       {/* 4 Feature Gateways Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Gateway 1: Workbench */}
+        {/* Gateway 1: In-Class Topic Simulations */}
         <div
-          onClick={() => onNavigate('workbench')}
+          onClick={() => onNavigate('classes')}
           className="cursor-pointer bg-slate-900/90 border border-slate-800 hover:border-cyan-500/50 rounded-2xl p-5 transition-all group flex flex-col justify-between"
         >
           <div>
@@ -150,14 +150,14 @@ export default function StudentDashboard({ onNavigate }: StudentDashboardProps) 
               <Zap className="w-6 h-6" />
             </div>
             <h4 className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
-              Simulation Workbench
+              In-Class Topic Labs
             </h4>
             <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-              Drag &amp; drop batteries, resistors, and LEDs. Live Ohm&apos;s law calculations and realistic burnout physics.
+              Every class topic has its own digital twin simulation. Test circuits, calculate Ohm&apos;s law, and prove empirical understanding.
             </p>
           </div>
           <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs font-semibold text-cyan-400">
-            <span>Open Lab</span>
+            <span>Explore Classes</span>
             <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </div>
         </div>

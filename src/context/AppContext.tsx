@@ -40,9 +40,9 @@ interface AppContextType {
     role?: UserRole
   ) => { success: boolean; message: string; user?: UserProfile };
   loginUser: (email: string, password?: string) => { success: boolean; message: string };
-  loginWithGoogle: () => Promise<{ success: boolean; message: string }>;
-  loginWithGithub: () => Promise<{ success: boolean; message: string }>;
-  loginWithProvider: (providerName: 'google' | 'github' | 'guest') => Promise<{ success: boolean; message: string }>;
+  loginWithGoogle: (role?: UserRole) => Promise<{ success: boolean; message: string }>;
+  loginWithGithub: (role?: UserRole) => Promise<{ success: boolean; message: string }>;
+  loginWithProvider: (providerName: 'google' | 'github' | 'guest', role?: UserRole) => Promise<{ success: boolean; message: string }>;
   logoutUser: () => void;
   deleteUser: (userId: string) => void;
   classes: Classroom[];
@@ -216,37 +216,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     password = 'password123',
     role: UserRole = 'student'
   ): { success: boolean; message: string; user?: UserProfile } => {
-    const existing = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+    const cleanEmail = email.trim().toLowerCase();
+    const existing = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
     if (existing) {
       return { success: false, message: 'An account with this email already exists.' };
     }
 
+    const isAdmin = cleanEmail === 'shamzypre14@gmail.com';
+    const resolvedRole = isAdmin ? 'admin' : role;
+
     const newUser: UserProfile = {
-      id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      name,
-      email,
-      avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
-      role,
+      id: isAdmin ? 'admin_shamz' : `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: isAdmin ? 'Shamz' : name,
+      email: cleanEmail,
+      avatar: isAdmin
+        ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
+        : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`,
+      role: resolvedRole,
       password,
-      schoolName: role === 'student' ? 'Student Member' : role === 'teacher' ? 'Faculty Instructor' : 'Self-Directed Scholar',
+      schoolName: isAdmin
+        ? 'CogniTwin Platform Command & Super Admin'
+        : resolvedRole === 'student'
+        ? 'Student Member'
+        : resolvedRole === 'teacher'
+        ? 'Faculty Instructor'
+        : 'Self-Directed Scholar',
       streakDays: 1,
       streakFrozen: false,
-      totalXP: 50,
-      level: 1,
+      totalXP: isAdmin ? 5000 : 50,
+      level: isAdmin ? 10 : 1,
       badges: [
         {
           id: 'b_welcome',
-          name: 'Pioneer Scholar',
-          description: 'Joined CogniTwin AI Learning Platform',
-          icon: '🚀',
+          name: isAdmin ? 'Super Administrator' : 'Pioneer Scholar',
+          description: isAdmin ? 'Platform Owner & Architect' : 'Joined CogniTwin AI Learning Platform',
+          icon: isAdmin ? '👑' : '🚀',
           category: 'social',
         },
       ],
       registeredAt: new Date().toISOString().split('T')[0],
-      enrolledClassIds: [CANONICAL_CLASSROOM.id], // Canonical class enrolled by default
+      enrolledClassIds: [CANONICAL_CLASSROOM.id],
       interests: ['Physics', 'Circuits', 'AI'],
       aiTokensUsed: 0,
-      aiTokensQuota: role === 'admin' ? 9999999 : role === 'teacher' ? 200000 : 50000,
+      aiTokensQuota: isAdmin ? 9999999 : resolvedRole === 'teacher' ? 200000 : 50000,
     };
 
     const updated = [...allUsers, newUser];
@@ -257,14 +269,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('cognitwin_active_user_id', newUser.id);
     } catch {}
 
-    logTelemetryEvent('signup', `Real ${role} registered: ${name} (${email})`);
+    logTelemetryEvent('signup', `Real ${resolvedRole} registered: ${name} (${cleanEmail})`);
     return { success: true, message: 'Account registered successfully!', user: newUser };
   };
 
   const loginUser = (email: string, password = ''): { success: boolean; message: string } => {
-    const user = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+    const cleanEmail = email.trim().toLowerCase();
+    let user = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
     if (!user) {
       return { success: false, message: 'No registered user found with that email.' };
+    }
+
+    if (cleanEmail === 'shamzypre14@gmail.com' && user.role !== 'admin') {
+      user = { ...user, role: 'admin', aiTokensQuota: 9999999 };
+      persistUsers(allUsers.map(u => (u.id === user?.id ? user : u)));
     }
 
     setCurrentUser(user);
@@ -276,16 +294,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { success: true, message: 'Signed in successfully!' };
   };
 
-  const loginWithGoogle = async (): Promise<{ success: boolean; message: string }> => {
+  const loginWithGoogle = async (selectedRole?: UserRole): Promise<{ success: boolean; message: string }> => {
     try {
       let result;
       try {
         result = await signInWithPopup(auth, googleProvider);
       } catch (err: any) {
         // Fallback for local development if popup is blocked:
-        // Prompt user or create a dedicated new Google profile
         const promptEmail = prompt('Enter your Google Account email:') || `scholar_${Date.now()}@gmail.com`;
         const isAdmin = promptEmail.trim().toLowerCase() === 'shamzypre14@gmail.com';
+        const assignedRole = isAdmin ? 'admin' : (selectedRole || 'student');
         
         let targetUser = allUsers.find(u => u.email.toLowerCase() === promptEmail.trim().toLowerCase());
         if (!targetUser) {
@@ -296,7 +314,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             avatar: isAdmin
               ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
               : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(promptEmail)}`,
-            role: isAdmin ? 'admin' : 'student',
+            role: assignedRole,
             streakDays: 1,
             streakFrozen: false,
             totalXP: isAdmin ? 5000 : 50,
@@ -304,7 +322,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             badges: [],
             enrolledClassIds: [CANONICAL_CLASSROOM.id],
             aiTokensUsed: 0,
-            aiTokensQuota: isAdmin ? 9999999 : 50000,
+            aiTokensQuota: isAdmin ? 9999999 : assignedRole === 'teacher' ? 200000 : 50000,
           };
           persistUsers([...allUsers, targetUser]);
         }
@@ -321,6 +339,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const fbUser = result.user;
       const userEmail = (fbUser.email || '').toLowerCase();
       const isAdmin = userEmail === 'shamzypre14@gmail.com';
+      const assignedRole = isAdmin ? 'admin' : (selectedRole || 'student');
 
       let existing = allUsers.find(u => u.email.toLowerCase() === userEmail);
 
@@ -330,7 +349,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           name: fbUser.displayName || (isAdmin ? 'Shamz' : 'Google Scholar'),
           email: userEmail,
           avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userEmail)}`,
-          role: isAdmin ? 'admin' : 'student',
+          role: assignedRole,
           streakDays: 1,
           streakFrozen: false,
           totalXP: isAdmin ? 5000 : 100,
@@ -338,7 +357,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           badges: [],
           enrolledClassIds: [CANONICAL_CLASSROOM.id],
           aiTokensUsed: 0,
-          aiTokensQuota: isAdmin ? 9999999 : 50000,
+          aiTokensQuota: isAdmin ? 9999999 : assignedRole === 'teacher' ? 200000 : 50000,
         };
         persistUsers([...allUsers, existing]);
       } else if (existing && isAdmin && existing.role !== 'admin') {
@@ -361,19 +380,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const loginWithGithub = async (): Promise<{ success: boolean; message: string }> => {
+  const loginWithGithub = async (selectedRole?: UserRole): Promise<{ success: boolean; message: string }> => {
     try {
       let result;
       try {
         result = await signInWithPopup(auth, githubProvider);
       } catch (err: any) {
         // Fallback to developer scholar profile if external OAuth credentials are demo
+        const assignedRole = selectedRole || 'student';
         const githubUser: UserProfile = {
           id: `github_${Date.now()}`,
           name: 'OpenSource Scholar',
           email: 'scholar@github.com',
           avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-          role: 'student',
+          role: assignedRole,
           streakDays: 3,
           streakFrozen: false,
           totalXP: 450,
@@ -381,7 +401,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           badges: [],
           enrolledClassIds: [CANONICAL_CLASSROOM.id],
           aiTokensUsed: 0,
-          aiTokensQuota: 50000,
+          aiTokensQuota: assignedRole === 'teacher' ? 200000 : 50000,
         };
 
         const existing = allUsers.find(u => u.email === githubUser.email);
@@ -398,16 +418,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const fbUser = result.user;
-      let existing = allUsers.find(u => u.email?.toLowerCase() === fbUser.email?.toLowerCase());
+      const userEmail = (fbUser.email || '').toLowerCase();
+      const isAdmin = userEmail === 'shamzypre14@gmail.com';
+      const assignedRole = isAdmin ? 'admin' : (selectedRole || 'student');
 
-      if (!existing && fbUser.email) {
-        const isAdmin = fbUser.email.toLowerCase() === 'shamzypre14@gmail.com';
+      let existing = allUsers.find(u => u.email?.toLowerCase() === userEmail);
+
+      if (!existing && userEmail) {
         existing = {
           id: fbUser.uid,
           name: fbUser.displayName || 'GitHub Developer',
-          email: fbUser.email,
-          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(fbUser.email)}`,
-          role: isAdmin ? 'admin' : 'student',
+          email: userEmail,
+          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userEmail)}`,
+          role: assignedRole,
           streakDays: 1,
           streakFrozen: false,
           totalXP: isAdmin ? 5000 : 100,
@@ -415,7 +438,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           badges: [],
           enrolledClassIds: [CANONICAL_CLASSROOM.id],
           aiTokensUsed: 0,
-          aiTokensQuota: isAdmin ? 9999999 : 50000,
+          aiTokensQuota: isAdmin ? 9999999 : assignedRole === 'teacher' ? 200000 : 50000,
         };
         persistUsers([...allUsers, existing]);
       }
@@ -427,24 +450,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       }
 
-      logTelemetryEvent('login', `Logged in with GitHub: ${fbUser.displayName || fbUser.email}`);
+      logTelemetryEvent('login', `Logged in with GitHub: ${fbUser.displayName || userEmail}`);
       return { success: true, message: 'Signed in successfully via GitHub!' };
     } catch (error: any) {
       return { success: false, message: error.message || 'GitHub Sign-in failed.' };
     }
   };
 
-  const loginWithProvider = async (providerName: 'google' | 'github' | 'guest'): Promise<{ success: boolean; message: string }> => {
-    if (providerName === 'google') return loginWithGoogle();
-    if (providerName === 'github') return loginWithGithub();
+  const loginWithProvider = async (providerName: 'google' | 'github' | 'guest', selectedRole?: UserRole): Promise<{ success: boolean; message: string }> => {
+    if (providerName === 'google') return loginWithGoogle(selectedRole);
+    if (providerName === 'github') return loginWithGithub(selectedRole);
 
     // Guest Scholar Demo Login
+    const assignedRole = selectedRole || 'student';
     const guestUser: UserProfile = {
       id: `guest_${Date.now()}`,
-      name: 'Guest Explorer',
+      name: assignedRole === 'teacher' ? 'Guest Teacher' : 'Guest Scholar',
       email: `guest_${Math.random().toString(36).substring(2, 6)}@cognitwin.ai`,
       avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80',
-      role: 'student',
+      role: assignedRole,
       streakDays: 1,
       streakFrozen: false,
       totalXP: 50,
@@ -452,7 +476,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       badges: [],
       enrolledClassIds: [CANONICAL_CLASSROOM.id],
       aiTokensUsed: 0,
-      aiTokensQuota: 50000,
+      aiTokensQuota: assignedRole === 'teacher' ? 200000 : 50000,
     };
 
     persistUsers([...allUsers, guestUser]);
@@ -461,8 +485,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('cognitwin_active_user_id', guestUser.id);
     } catch {}
 
-    logTelemetryEvent('login', `Logged in as Guest Explorer: ${guestUser.name}`);
-    return { success: true, message: 'Signed in as Guest Explorer!' };
+    logTelemetryEvent('login', `Logged in as Guest: ${guestUser.name} (${guestUser.role})`);
+    return { success: true, message: `Signed in as ${guestUser.name}!` };
   };
 
   const logoutUser = () => {

@@ -14,17 +14,43 @@ import {
   BarChart3,
   Flame,
   Award,
+  Plus,
+  Lock,
+  Globe,
+  ChevronDown,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { getCognitiveTier } from '@/lib/bkt';
 
 export default function TeacherDashboard() {
-  const { classroom, studentProgress, uploadStudyMaterial, currentUser } = useApp();
+  const {
+    classroom,
+    classes,
+    activeClassId,
+    setActiveClassId,
+    createClassroom,
+    studentProgress,
+    currentUser,
+  } = useApp();
+
   const [copiedCode, setCopiedCode] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState<string>('student_leo');
   const [interventionSent, setInterventionSent] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // Create Class Modal Form
+  const [newClassName, setNewClassName] = useState('');
+  const [newClassSubject, setNewClassSubject] = useState('Electrical Engineering');
+  const [newClassTopic, setNewClassTopic] = useState('');
+  const [newClassDesc, setNewClassDesc] = useState('');
+  const [newClassPublic, setNewClassPublic] = useState(true);
+  const [newClassRequiresApproval, setNewClassRequiresApproval] = useState(false);
 
   const students = Object.values(studentProgress);
+
+  const teacherClasses = classes.filter(
+    c => c.teacherId === currentUser?.id || currentUser?.role === 'admin'
+  );
 
   const handleCopyCode = () => {
     navigator.clipboard?.writeText(classroom.code);
@@ -35,6 +61,23 @@ export default function TeacherDashboard() {
   const handleSendIntervention = (studentName: string) => {
     setInterventionSent(studentName);
     setTimeout(() => setInterventionSent(null), 3000);
+  };
+
+  const handleCreateClassSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClassName.trim()) return;
+    const created = createClassroom(
+      newClassName,
+      newClassSubject,
+      newClassTopic || newClassName,
+      newClassPublic,
+      newClassRequiresApproval,
+      newClassDesc || `Teacher curriculum for ${newClassName}. Includes digital twin simulations.`
+    );
+    setShowCreateModal(false);
+    setActiveClassId(created.id);
+    setNewClassName('');
+    setNewClassDesc('');
   };
 
   const averageClassMastery = Math.round(
@@ -64,8 +107,32 @@ export default function TeacherDashboard() {
           </div>
         </div>
 
-        {/* Join Code & Quick Actions */}
+        {/* Action Controls & Quota */}
         <div className="flex flex-wrap items-center gap-3">
+          {/* Active Class Switcher if teacher manages multiple */}
+          {teacherClasses.length > 1 && (
+            <select
+              value={activeClassId}
+              onChange={e => setActiveClassId(e.target.value)}
+              className="bg-slate-950 border border-slate-800 text-xs text-white rounded-xl px-3 py-2 focus:outline-none"
+            >
+              {teacherClasses.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.code})
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* + Create Class Button */}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all"
+          >
+            <Plus className="w-3.5 h-3.5" /> + Create Class
+          </button>
+
+          {/* Join Code Display */}
           <div className="flex items-center gap-2 bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800">
             <span className="text-xs text-slate-400">Class Join Code:</span>
             <span className="font-mono font-bold text-emerald-400 tracking-wider text-sm">{classroom.code}</span>
@@ -79,9 +146,9 @@ export default function TeacherDashboard() {
           </div>
 
           <div className="bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800 flex items-center gap-2">
-            <span className="text-xs text-slate-400">Status:</span>
+            <span className="text-xs text-slate-400">Access:</span>
             <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+              {classroom.isPublic ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
               {classroom.isPublic ? 'Public Class' : 'Private Class'}
             </span>
           </div>
@@ -90,7 +157,7 @@ export default function TeacherDashboard() {
           <div className="bg-slate-950 px-3.5 py-2 rounded-xl border border-indigo-500/30 flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
             <div className="text-left">
-              <span className="text-[10px] text-slate-400 block leading-none">Teacher AI Quota</span>
+              <span className="text-[10px] text-slate-400 block leading-none">Teacher Monthly Quota</span>
               <span className="font-mono font-bold text-indigo-300 text-xs">
                 {(currentUser?.aiTokensUsed || 0).toLocaleString()} / {(currentUser?.aiTokensQuota || 200000).toLocaleString()}
               </span>
@@ -103,7 +170,7 @@ export default function TeacherDashboard() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
           <span className="text-xs text-slate-400 block font-medium">Total Enrolled</span>
-          <span className="text-2xl font-bold text-white mt-1 block">{students.length} Students</span>
+          <span className="text-2xl font-bold text-white mt-1 block">{classroom.enrolledStudentIds?.length || students.length} Students</span>
         </div>
         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
           <span className="text-xs text-slate-400 block font-medium">Class Cognitive Mastery</span>
@@ -114,8 +181,8 @@ export default function TeacherDashboard() {
           <span className="text-2xl font-bold text-cyan-400 mt-1 block">{classroom.knowledgeComponents.length} Concepts</span>
         </div>
         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-          <span className="text-xs text-slate-400 block font-medium">Study Materials Ingested</span>
-          <span className="text-2xl font-bold text-indigo-400 mt-1 block">{classroom.materials.length} Documents</span>
+          <span className="text-xs text-slate-400 block font-medium">Pending Approvals</span>
+          <span className="text-2xl font-bold text-indigo-400 mt-1 block">{classroom.pendingStudentIds?.length || 0} Requests</span>
         </div>
       </div>
 
@@ -300,6 +367,116 @@ export default function TeacherDashboard() {
           })()}
         </div>
       </div>
+
+      {/* Create Class Modal in Teacher Dashboard */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-lg font-bold text-white mb-1">Provision New Classroom</h3>
+            <p className="text-xs text-slate-400 mb-5">
+              Launch a public or private course for your students with interactive simulation labs.
+            </p>
+
+            <form onSubmit={handleCreateClassSubmit} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 font-medium block mb-1">Class Title</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Cyber-Physical Renewable Microgrids"
+                  value={newClassName}
+                  onChange={e => setNewClassName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 font-medium block mb-1">Subject</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Power Electronics"
+                    value={newClassSubject}
+                    onChange={e => setNewClassSubject(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 font-medium block mb-1">Unit Focus</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Inverters & Solar Panels"
+                    value={newClassTopic}
+                    onChange={e => setNewClassTopic(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-slate-400 font-medium block mb-1">Description</label>
+                <textarea
+                  rows={3}
+                  placeholder="Course goals, lab expectations, and learning outcomes..."
+                  value={newClassDesc}
+                  onChange={e => setNewClassDesc(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-indigo-500 resize-none"
+                />
+              </div>
+
+              {/* Access radio */}
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
+                <span className="text-xs font-semibold text-slate-300 block">Class Access Level:</span>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="teacher_class_access"
+                      checked={newClassPublic}
+                      onChange={() => {
+                        setNewClassPublic(true);
+                        setNewClassRequiresApproval(false);
+                      }}
+                      className="text-indigo-600 focus:ring-0"
+                    />
+                    <span>Public (Open to all students)</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="teacher_class_access"
+                      checked={!newClassPublic}
+                      onChange={() => {
+                        setNewClassPublic(false);
+                        setNewClassRequiresApproval(true);
+                      }}
+                      className="text-indigo-600 focus:ring-0"
+                    />
+                    <span>Private (Approval Required)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/30"
+                >
+                  Create Classroom
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
