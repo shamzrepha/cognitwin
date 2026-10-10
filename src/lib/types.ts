@@ -18,6 +18,8 @@ export interface UserProfile {
   registeredAt?: string;
   enrolledClassIds?: string[];
   interests?: string[];
+  aiTokensUsed?: number;
+  aiTokensQuota?: number; // e.g. 50,000 for students/individuals, 200,000 for teachers, unlimited for admin
 }
 
 export interface Badge {

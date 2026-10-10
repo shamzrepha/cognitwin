@@ -198,6 +198,7 @@ export default function AdminDashboard() {
                 <th className="py-3 px-4">Role</th>
                 <th className="py-3 px-4 text-center">XP</th>
                 <th className="py-3 px-4 text-center">Streak</th>
+                <th className="py-3 px-4 text-center">AI Token Quota</th>
                 <th className="py-3 px-4">Registered Date</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -205,6 +206,10 @@ export default function AdminDashboard() {
             <tbody className="divide-y divide-slate-800/60">
               {filteredUsers.map(user => {
                 const isAdmin = user.role === 'admin';
+                const tokensUsed = user.aiTokensUsed || 0;
+                const tokensQuota = user.aiTokensQuota || (isAdmin ? 9999999 : user.role === 'teacher' ? 200000 : 50000);
+                const pct = Math.min(100, Math.round((tokensUsed / tokensQuota) * 100));
+
                 return (
                   <tr key={user.id} className="hover:bg-slate-900/40 transition-colors">
                     <td className="py-3 px-4 flex items-center gap-2.5">
@@ -236,6 +241,21 @@ export default function AdminDashboard() {
                     </td>
                     <td className="py-3 px-4 text-center font-mono text-amber-400 font-bold">{user.totalXP}</td>
                     <td className="py-3 px-4 text-center font-mono text-orange-400 font-semibold">{user.streakDays}d</td>
+                    <td className="py-3 px-4 text-center">
+                      <div className="flex flex-col items-center">
+                        <span className="font-mono text-[11px] text-slate-300">
+                          {isAdmin ? 'Unlimited' : `${tokensUsed.toLocaleString()} / ${tokensQuota.toLocaleString()}`}
+                        </span>
+                        {!isAdmin && (
+                          <div className="w-24 bg-slate-800 rounded-full h-1.5 mt-1 overflow-hidden">
+                            <div
+                              className={`h-full ${pct > 80 ? 'bg-rose-500' : 'bg-emerald-500'}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-3 px-4 text-slate-400">{user.registeredAt || '2026-10-10'}</td>
                     <td className="py-3 px-4 text-right">
                       {!isAdmin && (

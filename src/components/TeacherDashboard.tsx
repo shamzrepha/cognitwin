@@ -19,7 +19,7 @@ import { useApp } from '@/context/AppContext';
 import { getCognitiveTier } from '@/lib/bkt';
 
 export default function TeacherDashboard() {
-  const { classroom, studentProgress, uploadStudyMaterial } = useApp();
+  const { classroom, studentProgress, uploadStudyMaterial, currentUser } = useApp();
   const [copiedCode, setCopiedCode] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState<string>('student_leo');
   const [interventionSent, setInterventionSent] = useState<string | null>(null);
@@ -84,6 +84,17 @@ export default function TeacherDashboard() {
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
               {classroom.isPublic ? 'Public Class' : 'Private Class'}
             </span>
+          </div>
+
+          {/* Teacher AI Monthly Token Quota Pill */}
+          <div className="bg-slate-950 px-3.5 py-2 rounded-xl border border-indigo-500/30 flex items-center gap-2">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <div className="text-left">
+              <span className="text-[10px] text-slate-400 block leading-none">Teacher AI Quota</span>
+              <span className="font-mono font-bold text-indigo-300 text-xs">
+                {(currentUser?.aiTokensUsed || 0).toLocaleString()} / {(currentUser?.aiTokensQuota || 200000).toLocaleString()}
+              </span>
+            </div>
           </div>
         </div>
       </div>

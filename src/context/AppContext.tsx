@@ -243,6 +243,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       registeredAt: new Date().toISOString().split('T')[0],
       enrolledClassIds: [CANONICAL_CLASSROOM.id], // Canonical class enrolled by default
       interests: ['Physics', 'Circuits', 'AI'],
+      aiTokensUsed: 0,
+      aiTokensQuota: role === 'admin' ? 9999999 : role === 'teacher' ? 200000 : 50000,
     };
 
     const updated = [...allUsers, newUser];
@@ -319,6 +321,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           level: isAdmin ? 10 : 1,
           badges: [],
           enrolledClassIds: [CANONICAL_CLASSROOM.id],
+          aiTokensUsed: 0,
+          aiTokensQuota: isAdmin ? 9999999 : 50000,
         };
         persistUsers([...allUsers, existing]);
       }
@@ -632,22 +636,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       'BKT continuous cognitive modeling tracks individual student mastery.',
     ];
 
-    // Connect to live Gemini API if key is present
-    if (geminiApiKey) {
-      try {
-        const res = await fetch('/api/gemini', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: `You are an educational AI. Analyze the following study text and generate a 2-paragraph summary and 3 key takeaways. Text: ${rawText}`,
-            userApiKey: geminiApiKey,
-          }),
-        });
-        const data = await res.json();
-        if (data?.text) summaryText = data.text;
-      } catch (err) {
-        console.error('Gemini live call error, using local fallback', err);
+    try {
+      const res = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: `You are an educational AI. Analyze the following study text and generate a 2-paragraph summary and 3 key takeaways. Text: ${rawText}`,
+          userId: currentUser?.id,
+          userRole: currentUser?.role,
+          currentTokensUsed: currentUser?.aiTokensUsed || 0,
+          tokenQuota: currentUser?.aiTokensQuota,
+        }),
+      });
+      const data = await res.json();
+      if (data?.text) summaryText = data.text;
+      if (data?.tokensUsed && currentUser) {
+        const updatedTokens = (currentUser.aiTokensUsed || 0) + data.tokensUsed;
+        const updatedUser = { ...currentUser, aiTokensUsed: updatedTokens };
+        setCurrentUser(updatedUser);
+        persistUsers(allUsers.map(u => (u.id === currentUser.id ? updatedUser : u)));
+        logTelemetryEvent('bkt_mastery_updated', `AI Tokens Charged: +${data.tokensUsed} tokens (Total: ${updatedTokens.toLocaleString()} / ${(currentUser.aiTokensQuota || 50000).toLocaleString()})`);
       }
+    } catch (err) {
+      console.error('Gemini synthesis error:', err);
     }
 
     const newMaterial: StudyMaterial = {
@@ -676,17 +687,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let prompt = `Create an interactive digital twin simulation objective for topic: ${topic}. Description: ${description}.`;
     let responseText = `Design and balance circuit components to verify ${topic}.`;
 
-    if (geminiApiKey) {
-      try {
-        const res = await fetch('/api/gemini', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt, userApiKey: geminiApiKey }),
-        });
-        const data = await res.json();
-        if (data?.text) responseText = data.text;
-      } catch {}
-    }
+    try {
+      const res = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          userId: currentUser?.id,
+          userRole: currentUser?.role,
+          currentTokensUsed: currentUser?.aiTokensUsed || 0,
+          tokenQuota: currentUser?.aiTokensQuota,
+        }),
+      });
+      const data = await res.json();
+      if (data?.text) responseText = data.text;
+      if (data?.tokensUsed && currentUser) {
+        const updatedTokens = (currentUser.aiTokensUsed || 0) + data.tokensUsed;
+        const updatedUser = { ...currentUser, aiTokensUsed: updatedTokens };
+        setCurrentUser(updatedUser);
+        persistUsers(allUsers.map(u => (u.id === currentUser.id ? updatedUser : u)));
+      }
+    } catch {}
 
     return {
       title: `${topic} Digital Twin Lab`,

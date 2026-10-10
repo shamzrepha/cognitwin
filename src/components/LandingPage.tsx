@@ -23,16 +23,7 @@ interface LandingPageProps {
 }
 
 export default function LandingPage({ onOpenAuth, onExploreDemo }: LandingPageProps) {
-  const { classes, geminiApiKey, setGeminiApiKey } = useApp();
-  const [apiKeyInput, setApiKeyInput] = useState(geminiApiKey);
-  const [keySaved, setKeySaved] = useState(false);
-
-  const handleSaveKey = (e: React.FormEvent) => {
-    e.preventDefault();
-    setGeminiApiKey(apiKeyInput.trim());
-    setKeySaved(true);
-    setTimeout(() => setKeySaved(false), 2500);
-  };
+  const { classes } = useApp();
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-indigo-500 selection:text-white">
@@ -109,30 +100,22 @@ export default function LandingPage({ onOpenAuth, onExploreDemo }: LandingPagePr
           </button>
         </div>
 
-        {/* Live Gemini API Key Config Box */}
-        <div className="mt-12 max-w-md mx-auto w-full bg-slate-900/80 border border-slate-800 p-4 rounded-2xl text-left">
-          <div className="flex items-center gap-2 text-xs font-bold text-amber-300 mb-1">
-            <Key className="w-4 h-4" /> Connect Your Google Gemini API Key
+        {/* Platform Powered AI Engine Badge */}
+        <div className="mt-12 max-w-lg mx-auto w-full bg-slate-900/80 border border-slate-800 p-4 rounded-2xl text-left flex items-start gap-3.5">
+          <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 shrink-0">
+            <Sparkles className="w-5 h-5" />
           </div>
-          <p className="text-[11px] text-slate-400 mb-2.5">
-            Inject your Gemini API key to power real-time AI document chunking, interactive simulations, and grounded tutor queries.
-          </p>
-
-          <form onSubmit={handleSaveKey} className="flex gap-2">
-            <input
-              type="password"
-              placeholder="Paste AI Studio Gemini Key..."
-              value={apiKeyInput}
-              onChange={e => setApiKeyInput(e.target.value)}
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
-            />
-            <button
-              type="submit"
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition-colors"
-            >
-              {keySaved ? 'Saved!' : 'Save Key'}
-            </button>
-          </form>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-bold text-white">Platform-Powered Intelligence (Gemini 2.5 Flash)</h4>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                Included Free
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+              All AI document analysis, audio synthesis, and simulation generation are hosted natively on the platform infrastructure. Teachers receive generous quotas of 200,000 tokens/month, and scholars receive 50,000 tokens/month with zero personal API setup required.
+            </p>
+          </div>
         </div>
       </section>
 

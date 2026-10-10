@@ -44,6 +44,8 @@ export const INITIAL_ADMIN_USER: UserProfile = {
   registeredAt: '2026-10-10',
   enrolledClassIds: ['class-canonical-circuits'],
   interests: ['Electronics', 'Physics', 'Digital Twins', 'AI Learning'],
+  aiTokensUsed: 0,
+  aiTokensQuota: 9999999, // Super admin has unlimited tokens
 };
 
 // System Users Map starts with ONLY the admin account.
