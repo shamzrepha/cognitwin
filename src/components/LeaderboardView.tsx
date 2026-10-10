@@ -57,32 +57,34 @@ export default function LeaderboardView() {
       </div>
 
       {/* User Current Standing Banner */}
-      <div className="mt-6 bg-gradient-to-r from-amber-950/40 via-slate-950 to-slate-950 p-4 rounded-xl border border-amber-500/30 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full border-2 border-amber-400 overflow-hidden">
-            <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
+      {currentUser && (
+        <div className="mt-6 bg-gradient-to-r from-amber-950/40 via-slate-950 to-slate-950 p-4 rounded-xl border border-amber-500/30 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full border-2 border-amber-400 overflow-hidden">
+              <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
+            </div>
+            <div>
+              <span className="text-xs text-amber-300 font-semibold flex items-center gap-1">
+                <Star className="w-3.5 h-3.5 fill-amber-300" /> Your Standing: {currentUser.name}
+              </span>
+              <span className="text-sm font-bold text-white">Level {currentUser.level} Scholar</span>
+            </div>
           </div>
-          <div>
-            <span className="text-xs text-amber-300 font-semibold flex items-center gap-1">
-              <Star className="w-3.5 h-3.5 fill-amber-300" /> Your Standing: {currentUser.name}
-            </span>
-            <span className="text-sm font-bold text-white">Level {currentUser.level} Scholar</span>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-4 text-xs">
-          <div className="text-right">
-            <span className="text-slate-400 block">Total Cognitive XP</span>
-            <span className="font-mono font-bold text-amber-400 text-base">{currentUser.totalXP} XP</span>
-          </div>
-          <div className="text-right">
-            <span className="text-slate-400 block">Active Streak</span>
-            <span className="font-mono font-bold text-orange-400 text-base flex items-center gap-0.5 justify-end">
-              <Flame className="w-4 h-4 fill-orange-400" /> {currentUser.streakDays}d
-            </span>
+          <div className="flex items-center gap-4 text-xs">
+            <div className="text-right">
+              <span className="text-slate-400 block">Total Cognitive XP</span>
+              <span className="font-mono font-bold text-amber-400 text-base">{currentUser.totalXP} XP</span>
+            </div>
+            <div className="text-right">
+              <span className="text-slate-400 block">Active Streak</span>
+              <span className="font-mono font-bold text-orange-400 text-base flex items-center gap-0.5 justify-end">
+                <Flame className="w-4 h-4 fill-orange-400" /> {currentUser.streakDays}d
+              </span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Leaderboard Table */}
       <div className="mt-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
@@ -99,7 +101,7 @@ export default function LeaderboardView() {
           </thead>
           <tbody className="divide-y divide-slate-800/60">
             {activeBoard.map(entry => {
-              const isCurrentUser = entry.userId === currentUser.id;
+              const isCurrentUser = currentUser ? entry.userId === currentUser.id : false;
               return (
                 <tr
                   key={entry.userId}

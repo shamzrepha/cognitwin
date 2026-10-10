@@ -16,26 +16,8 @@ export interface UserProfile {
   level: number;
   badges: Badge[];
   registeredAt?: string;
-}
-
-export interface SystemTelemetryEvent {
-  id: string;
-  timestamp: number;
-  userId: string;
-  userName: string;
-  userRole: string;
-  eventType:
-    | 'signup'
-    | 'login'
-    | 'simulation_test'
-    | 'led_burnout'
-    | 'challenge_complete'
-    | 'flashcard_review'
-    | 'bkt_mastery_updated'
-    | 'class_created'
-    | 'admin_action';
-  description: string;
-  metadata?: Record<string, any>;
+  enrolledClassIds?: string[];
+  interests?: string[];
 }
 
 export interface Badge {
@@ -45,6 +27,17 @@ export interface Badge {
   icon: string;
   unlockedAt?: string;
   category: 'mastery' | 'streak' | 'lab' | 'social';
+}
+
+export interface TopicSimulation {
+  id: string;
+  title: string;
+  description: string;
+  type: 'electronics' | 'logic' | 'physics';
+  targetObjective: string;
+  initialComponents?: any[];
+  expectedOutcomeFormula?: string;
+  xpReward: number;
 }
 
 export interface KnowledgeComponent {
@@ -57,6 +50,7 @@ export interface KnowledgeComponent {
   unit: string;
   bktParams: BKTParameters;
   labSimulationType?: 'electronics' | 'general';
+  simulation?: TopicSimulation; // In-class, per-topic simulation
 }
 
 export interface Flashcard {
@@ -98,31 +92,18 @@ export interface StudyMaterial {
   briefingDoc?: string;
   keyInsights: string[];
   audioOverview?: AudioOverviewDialog[];
-  extractedKCs: string[]; // KC IDs
+  extractedKCs: string[];
   contentSnippet: string;
-}
-
-export interface LabChallenge {
-  id: string;
-  title: string;
-  kcId: string;
-  targetGoal: string;
-  sourceVoltage: number; // e.g. 9V
-  targetCurrentMinMa: number; // e.g. 18mA
-  targetCurrentMaxMa: number; // e.g. 24mA
-  ledForwardDrop: number; // e.g. 2.0V
-  maxSafeCurrentMa: number; // e.g. 30mA (anything above pops LED)
-  hintFormula: string; // "R = (V_source - V_led) / I_target"
-  expectedResistanceRange: [number, number]; // [300, 390]
-  xpReward: number;
 }
 
 export interface Classroom {
   id: string;
   name: string;
   subject: string;
+  topic: string;
   code: string; // 6-digit join code
   isPublic: boolean;
+  requiresApproval: boolean;
   teacherId: string;
   teacherName: string;
   description: string;
@@ -131,13 +112,23 @@ export interface Classroom {
   flashcards: Flashcard[];
   quizzes: QuizQuestion[];
   enrolledStudentIds: string[];
+  pendingStudentIds?: string[];
   createdAt: string;
+}
+
+export interface PeerMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderAvatar: string;
+  text: string;
+  timestamp: number;
 }
 
 export interface StudyRoom {
   id: string;
   name: string;
-  code: string; // join code
+  code: string;
   hostId: string;
   hostName: string;
   description: string;
@@ -149,6 +140,7 @@ export interface StudyRoom {
     role: string;
     currentAction: string;
   }[];
+  messages: PeerMessage[];
   materials: StudyMaterial[];
   sharedNotes: string;
   createdAt: string;
@@ -178,4 +170,25 @@ export interface LeaderboardEntry {
   xp: number;
   masteredCount: number;
   streakDays: number;
+}
+
+export interface SystemTelemetryEvent {
+  id: string;
+  timestamp: number;
+  userId: string;
+  userName: string;
+  userRole: string;
+  eventType:
+    | 'signup'
+    | 'login'
+    | 'simulation_test'
+    | 'led_burnout'
+    | 'challenge_complete'
+    | 'flashcard_review'
+    | 'bkt_mastery_updated'
+    | 'class_created'
+    | 'peer_message'
+    | 'admin_action';
+  description: string;
+  metadata?: Record<string, any>;
 }

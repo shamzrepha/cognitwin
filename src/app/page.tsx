@@ -4,20 +4,36 @@ import React, { useState } from 'react';
 import { AppProvider, useApp } from '@/context/AppContext';
 import Navbar from '@/components/Navbar';
 import StudentDashboard from '@/components/StudentDashboard';
+import ClassroomsHub from '@/components/ClassroomsHub';
 import ElectronicsWorkbench from '@/components/ElectronicsWorkbench';
 import NotebookStudio from '@/components/NotebookStudio';
 import StudyRoomView from '@/components/StudyRoomView';
 import LeaderboardView from '@/components/LeaderboardView';
 import TeacherDashboard from '@/components/TeacherDashboard';
 import AdminDashboard from '@/components/AdminDashboard';
+import LandingPage from '@/components/LandingPage';
 import AuthModal from '@/components/AuthModal';
 import { Brain } from 'lucide-react';
 
 function MainApp() {
+  const { currentUser } = useApp();
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'workbench' | 'notebook' | 'room' | 'leaderboard' | 'teacher' | 'admin'
-  >('dashboard');
+    'classes' | 'dashboard' | 'workbench' | 'notebook' | 'room' | 'leaderboard' | 'teacher' | 'admin'
+  >('classes');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+
+  // If user is not logged in, gate with the clean public startup Landing Page
+  if (!currentUser) {
+    return (
+      <>
+        <LandingPage
+          onOpenAuth={() => setIsAuthOpen(true)}
+          onExploreDemo={() => setIsAuthOpen(true)}
+        />
+        <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
@@ -30,7 +46,8 @@ function MainApp() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'dashboard' && <StudentDashboard onNavigate={setActiveTab} />}
+        {activeTab === 'classes' && <ClassroomsHub />}
+        {activeTab === 'dashboard' && <StudentDashboard onNavigate={(tab) => setActiveTab(tab as any)} />}
         {activeTab === 'workbench' && <ElectronicsWorkbench />}
         {activeTab === 'notebook' && <NotebookStudio />}
         {activeTab === 'room' && (

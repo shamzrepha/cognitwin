@@ -64,7 +64,7 @@ export default function AdminDashboard() {
   const handleExportDatabase = () => {
     const data = {
       exportedAt: new Date().toISOString(),
-      superAdmin: currentUser.email,
+      superAdmin: currentUser?.email || 'admin@cognitwin.ai',
       users: allUsers,
       classrooms: [classroom],
       studyRooms: [studyRoom],
@@ -102,7 +102,7 @@ export default function AdminDashboard() {
                 </span>
               </div>
               <p className="text-sm text-slate-400">
-                Administrator: <strong className="text-white">{currentUser.name}</strong> ({currentUser.email}) • Global System Supervisor
+                Administrator: <strong className="text-white">{currentUser?.name || 'Shamz'}</strong> ({currentUser?.email || 'shamzypre14@gmail.com'}) • Global System Supervisor
               </p>
             </div>
           </div>
@@ -215,7 +215,7 @@ export default function AdminDashboard() {
                       />
                       <div>
                         <span className="font-bold text-white block">{user.name}</span>
-                        {user.id === currentUser.id && (
+                        {currentUser && user.id === currentUser.id && (
                           <span className="text-[10px] text-rose-400 font-semibold">(Current Admin)</span>
                         )}
                       </div>

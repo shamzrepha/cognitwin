@@ -20,8 +20,8 @@ import {
 import { useApp } from '@/context/AppContext';
 
 interface NavbarProps {
-  activeTab: 'dashboard' | 'workbench' | 'notebook' | 'room' | 'leaderboard' | 'teacher' | 'admin';
-  setActiveTab: (tab: 'dashboard' | 'workbench' | 'notebook' | 'room' | 'leaderboard' | 'teacher' | 'admin') => void;
+  activeTab: 'classes' | 'dashboard' | 'workbench' | 'notebook' | 'room' | 'leaderboard' | 'teacher' | 'admin';
+  setActiveTab: (tab: 'classes' | 'dashboard' | 'workbench' | 'notebook' | 'room' | 'leaderboard' | 'teacher' | 'admin') => void;
   onOpenAuth: () => void;
 }
 
@@ -35,7 +35,7 @@ export default function Navbar({ activeTab, setActiveTab, onOpenAuth }: NavbarPr
         <div className="flex items-center justify-between h-16 gap-4">
           {/* Logo & Brand */}
           <div
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => setActiveTab('classes')}
             className="flex items-center gap-2.5 cursor-pointer select-none"
           >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-cyan-500 to-emerald-400 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/20">
@@ -59,6 +59,18 @@ export default function Navbar({ activeTab, setActiveTab, onOpenAuth }: NavbarPr
           {/* Center Navigation Links */}
           <nav className="hidden md:flex items-center gap-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800/80">
             <button
+              onClick={() => setActiveTab('classes')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                activeTab === 'classes'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              My Classes
+            </button>
+
+            <button
               onClick={() => setActiveTab('dashboard')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 activeTab === 'dashboard'
@@ -67,7 +79,7 @@ export default function Navbar({ activeTab, setActiveTab, onOpenAuth }: NavbarPr
               }`}
             >
               <LayoutDashboard className="w-3.5 h-3.5" />
-              Dashboard
+              BKT Progress
             </button>
 
             <button
@@ -154,37 +166,40 @@ export default function Navbar({ activeTab, setActiveTab, onOpenAuth }: NavbarPr
             </button>
 
             {/* Gamification Pills */}
-            <div className="hidden sm:flex items-center gap-2">
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-500/10 border border-orange-500/30 text-xs font-mono font-bold text-orange-400">
-                <Flame className="w-3.5 h-3.5 fill-orange-400" />
-                {currentUser.streakDays}d
+            {currentUser && (
+              <div className="hidden sm:flex items-center gap-2">
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-500/10 border border-orange-500/30 text-xs font-mono font-bold text-orange-400">
+                  <Flame className="w-3.5 h-3.5 fill-orange-400" />
+                  {currentUser.streakDays}d
+                </div>
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs font-mono font-bold text-amber-400">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {currentUser.totalXP} XP
+                </div>
               </div>
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs font-mono font-bold text-amber-400">
-                <Sparkles className="w-3.5 h-3.5" />
-                {currentUser.totalXP} XP
-              </div>
-            </div>
+            )}
 
             {/* User Profile / Switcher Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => setShowUserDropdown(!showUserDropdown)}
-                className="flex items-center gap-2 p-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all text-left"
-              >
-                <img
-                  src={currentUser.avatar}
-                  alt={currentUser.name}
-                  className="w-8 h-8 rounded-lg object-cover border border-slate-700"
-                />
-                <div className="hidden lg:block text-xs pr-1">
-                  <span className="font-bold text-white block leading-tight flex items-center gap-1">
-                    {currentUser.name}
-                    {currentUser.role === 'admin' && <Shield className="w-3 h-3 text-rose-400 inline" />}
-                  </span>
-                  <span className="text-[10px] text-slate-400 capitalize block leading-none">{currentUser.role}</span>
-                </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              </button>
+            {currentUser ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserDropdown(!showUserDropdown)}
+                  className="flex items-center gap-2 p-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 transition-all text-left"
+                >
+                  <img
+                    src={currentUser.avatar}
+                    alt={currentUser.name}
+                    className="w-8 h-8 rounded-lg object-cover border border-slate-700"
+                  />
+                  <div className="hidden lg:block text-xs pr-1">
+                    <span className="font-bold text-white block leading-tight flex items-center gap-1">
+                      {currentUser.name}
+                      {currentUser.role === 'admin' && <Shield className="w-3 h-3 text-rose-400 inline" />}
+                    </span>
+                    <span className="text-[10px] text-slate-400 capitalize block leading-none">{currentUser.role}</span>
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                </button>
 
               {/* Dropdown Menu */}
               {showUserDropdown && (
@@ -243,16 +258,23 @@ export default function Navbar({ activeTab, setActiveTab, onOpenAuth }: NavbarPr
                 </div>
               )}
             </div>
-          </div>
+          ) : null}
         </div>
+      </div>
 
         {/* Mobile Navigation Row */}
         <div className="flex md:hidden items-center justify-around py-2 border-t border-slate-800/80 text-[11px]">
           <button
+            onClick={() => setActiveTab('classes')}
+            className={`font-semibold ${activeTab === 'classes' ? 'text-indigo-400' : 'text-slate-400'}`}
+          >
+            Classes
+          </button>
+          <button
             onClick={() => setActiveTab('dashboard')}
             className={`font-semibold ${activeTab === 'dashboard' ? 'text-indigo-400' : 'text-slate-400'}`}
           >
-            Dashboard
+            BKT
           </button>
           <button
             onClick={() => setActiveTab('workbench')}

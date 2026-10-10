@@ -128,7 +128,7 @@ export default function NotebookStudio() {
 
   const currentCards = classroom.flashcards;
   const activeCard: Flashcard | undefined = currentCards[currentCardIdx];
-  const userProgress = studentProgress[currentUser.id];
+  const userProgress = currentUser ? studentProgress[currentUser.id] : undefined;
 
   const handleCardResult = (isCorrect: boolean) => {
     if (!activeCard) return;
@@ -189,7 +189,7 @@ export default function NotebookStudio() {
     e.preventDefault();
     if (!uploadTitle.trim()) return;
     setIsUploading(true);
-    await uploadStudyMaterial(uploadTitle, uploadContent);
+    await uploadStudyMaterial(classroom.id, uploadTitle, uploadContent);
     setIsUploading(false);
     setUploadTitle('');
     setUploadContent('');

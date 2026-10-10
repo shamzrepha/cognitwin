@@ -5,7 +5,6 @@ import {
   Flashcard,
   QuizQuestion,
   StudyMaterial,
-  LabChallenge,
   StudyRoom,
   ClassStudentProgress,
   LeaderboardEntry,
@@ -35,22 +34,22 @@ export const INITIAL_ADMIN_USER: UserProfile = {
       category: 'mastery',
     },
     {
-      id: 'b_circuit_master',
+      id: 'b_cognitive_architect',
       name: 'Cognitive Engine Architect',
-      description: 'Full supervisory authority over BKT telemetry and databases',
+      description: 'Full supervisory authority over BKT telemetry and classes',
       icon: '⚡',
       category: 'lab',
     },
   ],
   registeredAt: '2026-10-10',
+  enrolledClassIds: ['class-canonical-circuits'],
+  interests: ['Electronics', 'Physics', 'Digital Twins', 'AI Learning'],
 };
 
-// Start with ONLY the Super Admin in the users database — zero fake students!
-export const MOCK_USERS: Record<string, UserProfile> = {
-  admin_shamz: INITIAL_ADMIN_USER,
-};
+// System Users Map starts with ONLY the admin account.
+export const INITIAL_USERS: UserProfile[] = [INITIAL_ADMIN_USER];
 
-export const MOCK_KCS: KnowledgeComponent[] = [
+export const CANONICAL_KCS: KnowledgeComponent[] = [
   {
     id: 'kc-voltage',
     code: 'ELEC-101',
@@ -60,6 +59,14 @@ export const MOCK_KCS: KnowledgeComponent[] = [
     difficulty: 'beginner',
     unit: 'Unit 1: Fundamentals of Charge',
     bktParams: { ...DEFAULT_BKT_PARAMS, pL0: 0.35, pT: 0.22 },
+    simulation: {
+      id: 'sim-voltage',
+      title: 'Potential Difference Visualizer',
+      description: 'Adjust the DC voltage source and observe charge displacement across terminals.',
+      type: 'physics',
+      targetObjective: 'Configure a 9V source to establish electrical gradient',
+      xpReward: 150,
+    },
   },
   {
     id: 'kc-current',
@@ -70,6 +77,14 @@ export const MOCK_KCS: KnowledgeComponent[] = [
     difficulty: 'beginner',
     unit: 'Unit 1: Fundamentals of Charge',
     bktParams: { ...DEFAULT_BKT_PARAMS, pL0: 0.25, pT: 0.20 },
+    simulation: {
+      id: 'sim-current',
+      title: 'Coulomb Flow Simulation',
+      description: 'Observe charge carriers traveling through a conductive medium.',
+      type: 'physics',
+      targetObjective: 'Close the loop to initiate current flow',
+      xpReward: 150,
+    },
   },
   {
     id: 'kc-ohms-law',
@@ -81,6 +96,15 @@ export const MOCK_KCS: KnowledgeComponent[] = [
     unit: 'Unit 2: Circuit Dynamics',
     bktParams: { ...DEFAULT_BKT_PARAMS, pL0: 0.15, pT: 0.16, pG: 0.18, pS: 0.12 },
     labSimulationType: 'electronics',
+    simulation: {
+      id: 'sim-ohms-law',
+      title: 'Ohm’s Law Dynamic Ratio Solver',
+      description: 'Verify V = I * R live by adjusting resistance and measuring current response.',
+      type: 'electronics',
+      targetObjective: 'Tune resistance until current reaches exactly 20mA',
+      expectedOutcomeFormula: 'I = V / R',
+      xpReward: 250,
+    },
   },
   {
     id: 'kc-led-resistors',
@@ -92,25 +116,23 @@ export const MOCK_KCS: KnowledgeComponent[] = [
     unit: 'Unit 2: Circuit Dynamics',
     bktParams: { ...DEFAULT_BKT_PARAMS, pL0: 0.10, pT: 0.15, pG: 0.15, pS: 0.10 },
     labSimulationType: 'electronics',
-  },
-  {
-    id: 'kc-series-parallel',
-    code: 'ELEC-105',
-    title: 'Series vs Parallel Networks',
-    description: 'Equivalent resistance calculations: R_eq = R1 + R2 versus 1/R_eq = 1/R1 + 1/R2 and Kirchhoff laws.',
-    prerequisites: ['kc-ohms-law'],
-    difficulty: 'advanced',
-    unit: 'Unit 3: Complex Topologies',
-    bktParams: { ...DEFAULT_BKT_PARAMS, pL0: 0.08, pT: 0.12, pG: 0.12, pS: 0.14 },
-    labSimulationType: 'electronics',
+    simulation: {
+      id: 'sim-led-protection',
+      title: 'Diode Burnout Prevention Lab',
+      description: 'Balance a 9V source with a red LED (2.0V drop) so current remains in the safe zone (18-24 mA).',
+      type: 'electronics',
+      targetObjective: 'Prevent diode junction thermal meltdown by inserting proper resistance',
+      expectedOutcomeFormula: 'R = (V_source - V_f) / I_target',
+      xpReward: 350,
+    },
   },
 ];
 
-export const MOCK_STUDY_MATERIALS: StudyMaterial[] = [
+export const CANONICAL_MATERIALS: StudyMaterial[] = [
   {
-    id: 'mat-circuits-core',
-    title: 'Principles of Direct Current & Resistors (Lecture Notes & Lab Guide)',
-    fileName: 'DC_Circuits_and_Semiconductors_2026.pdf',
+    id: 'mat-canonical-circuits',
+    title: 'Principles of Direct Current & Resistors (Canonical Class Notes)',
+    fileName: 'DC_Circuits_and_Semiconductors.pdf',
     fileType: 'pdf',
     uploadedAt: '2026-10-10',
     authorId: 'admin_shamz',
@@ -170,18 +192,18 @@ export const MOCK_STUDY_MATERIALS: StudyMaterial[] = [
       {
         id: 'aud-7',
         speaker: 'Host (Alex)',
-        text: "Which you can verify live right now on CogniTwin's Digital Twin Workbench before you ever risk burning an actual physical component!",
+        text: "Which you can verify live right now in the Topic Simulation Lab before risking any physical parts!",
         pitch: 1.1,
         rate: 1.05,
       },
     ],
     extractedKCs: ['kc-voltage', 'kc-current', 'kc-ohms-law', 'kc-led-resistors'],
     contentSnippet:
-      'CHAPTER 2: RESISTIVE CIRCUITS & DIODES\n\nWhen electrons traverse a resistive medium, potential energy is converted to thermal dissipation: P = I^2 * R. For semiconductor devices like Light Emitting Diodes (LEDs), the behavior is strictly non-linear. Below the forward threshold voltage (approx 2.0V for gallium arsenide red LEDs), zero conduction occurs. Once exceeded, current escalates asymptotically. Therefore, a series current-limiting resistor is mandatory. For instance, in a 9V rail with a 2.0V LED targeting 20mA (0.020 A): R = (9V - 2.0V) / 0.020A = 7.0V / 0.020A = 350 Ohms. A standard 330 Ohm or 390 Ohm resistor provides optimal luminance without exceeding the 30mA destruction threshold.',
+      'CHAPTER 2: RESISTIVE CIRCUITS & DIODES\n\nWhen electrons traverse a resistive medium, potential energy is converted to thermal dissipation: P = I^2 * R. For semiconductor devices like Light Emitting Diodes (LEDs), the behavior is strictly non-linear. Below the forward threshold voltage (approx 2.0V for gallium arsenide red LEDs), zero conduction occurs. Once exceeded, current escalates asymptotically. Therefore, a series current-limiting resistor is mandatory.',
   },
 ];
 
-export const MOCK_FLASHCARDS: Flashcard[] = [
+export const CANONICAL_FLASHCARDS: Flashcard[] = [
   {
     id: 'fc-1',
     kcId: 'kc-ohms-law',
@@ -206,25 +228,9 @@ export const MOCK_FLASHCARDS: Flashcard[] = [
     hint: 'Calculate the voltage drop across the resistor first: V_R = V_source - V_LED.',
     citation: 'DC Circuits & Semiconductors 2026, §2.4',
   },
-  {
-    id: 'fc-4',
-    kcId: 'kc-voltage',
-    front: 'What is electric potential difference (Voltage) in fundamental physical units?',
-    back: '1 Volt = 1 Joule per Coulomb (J/C). It measures the electrical potential energy difference per unit charge.',
-    hint: 'Energy divided by charge.',
-    citation: 'DC Circuits & Semiconductors 2026, §1.2',
-  },
-  {
-    id: 'fc-5',
-    kcId: 'kc-current',
-    front: 'What is 1 Ampere of electric current?',
-    back: '1 Ampere = 1 Coulomb of charge flowing past a cross-section per second (1 C/s). In electronics, 1 mA = 0.001 A.',
-    hint: 'Charge per unit time.',
-    citation: 'DC Circuits & Semiconductors 2026, §1.3',
-  },
 ];
 
-export const MOCK_QUIZZES: QuizQuestion[] = [
+export const CANONICAL_QUIZZES: QuizQuestion[] = [
   {
     id: 'q-1',
     kcId: 'kc-ohms-law',
@@ -255,100 +261,102 @@ export const MOCK_QUIZZES: QuizQuestion[] = [
   },
 ];
 
-export const MOCK_LAB_CHALLENGES: LabChallenge[] = [
-  {
-    id: 'lab-protect-led',
-    title: 'Challenge 1: Protect the LED from Burnout',
-    kcId: 'kc-led-resistors',
-    targetGoal: 'Build a closed circuit using a 9V Battery, a series Resistor, and a Red LED. Adjust or select a resistor value such that the current is in the optimal illumination zone (18 mA to 24 mA). Prevent the LED from burning out!',
-    sourceVoltage: 9,
-    targetCurrentMinMa: 18,
-    targetCurrentMaxMa: 24,
-    ledForwardDrop: 2.0,
-    maxSafeCurrentMa: 30,
-    hintFormula: 'R = (V_source - V_led) / I_target = (9V - 2V) / 0.02A = 350 Ω',
-    expectedResistanceRange: [290, 390],
-    xpReward: 350,
-  },
-  {
-    id: 'lab-dim-power',
-    title: 'Challenge 2: Low-Power Indicator Circuit',
-    kcId: 'kc-ohms-law',
-    targetGoal: 'Configure the circuit to operate in energy-saving dim mode (between 5 mA and 10 mA) from a 5V source.',
-    sourceVoltage: 5,
-    targetCurrentMinMa: 5,
-    targetCurrentMaxMa: 10,
-    ledForwardDrop: 2.0,
-    maxSafeCurrentMa: 30,
-    hintFormula: 'R = (5V - 2V) / I_target = 3V / 0.0075A ≈ 400 Ω to 600 Ω',
-    expectedResistanceRange: [300, 600],
-    xpReward: 250,
-  },
-];
-
-export const MOCK_CLASSROOM: Classroom = {
-  id: 'class-circuits-101',
+/**
+ * Canonical Default Class provided by developer to all students
+ */
+export const CANONICAL_CLASSROOM: Classroom = {
+  id: 'class-canonical-circuits',
   name: 'AP Physics: DC Circuits & Digital Twin Lab',
-  subject: 'Physics & Engineering',
+  subject: 'Electronics & Applied Physics',
+  topic: 'Ohm’s Law & Diode Protection',
   code: 'OHM-402',
   isPublic: true,
+  requiresApproval: false,
   teacherId: 'admin_shamz',
-  teacherName: 'Shamz (Platform Admin)',
-  description: 'Digital Twin classroom exploring electric potential, Ohm\'s law, semiconductor diodes, and interactive breadboard simulation.',
-  materials: MOCK_STUDY_MATERIALS,
-  knowledgeComponents: MOCK_KCS,
-  flashcards: MOCK_FLASHCARDS,
-  quizzes: MOCK_QUIZZES,
-  enrolledStudentIds: [],
+  teacherName: 'Shamz (Platform Lead)',
+  description: 'The canonical institutional classroom: master voltage, current, Ohm’s Law, and hands-on diode circuit simulations.',
+  materials: CANONICAL_MATERIALS,
+  knowledgeComponents: CANONICAL_KCS,
+  flashcards: CANONICAL_FLASHCARDS,
+  quizzes: CANONICAL_QUIZZES,
+  enrolledStudentIds: ['admin_shamz'],
+  pendingStudentIds: [],
   createdAt: '2026-10-10',
 };
 
-export const MOCK_STUDY_ROOM: StudyRoom = {
-  id: 'room-circuits-alpha',
-  name: 'Midnight Electronics & Exam Prep Lounge',
-  code: 'LOU-882',
-  hostId: 'admin_shamz',
-  hostName: 'Shamz',
-  description: 'Collaborative peer study room. Live circuit simulation workbench and shared study materials.',
-  isLive: true,
-  activeMembers: [],
-  materials: MOCK_STUDY_MATERIALS,
-  sharedNotes:
-    'Welcome to the live collaborative study session! Upload materials or test circuits together.',
-  createdAt: '2026-10-10',
-};
-
-/**
- * Clean Real Progress Database — Zero fake students!
- * Real users will be recorded dynamically as they register and practice.
- */
-export const MOCK_STUDENT_PROGRESS: Record<string, ClassStudentProgress> = {};
-
-/**
- * Clean Real Leaderboards — Starts with the Platform Administrator
- */
-export const MOCK_CLASS_LEADERBOARD: LeaderboardEntry[] = [
+export const INITIAL_STUDY_ROOMS: StudyRoom[] = [
   {
-    rank: 1,
-    userId: 'admin_shamz',
-    userName: 'Shamz (Admin)',
-    userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    schoolOrClass: 'CogniTwin Platform Command',
-    xp: 5000,
-    masteredCount: 5,
-    streakDays: 1,
+    id: 'room-circuits-lounge',
+    name: 'Circuit Scholars Peer Lounge',
+    code: 'PEER-101',
+    hostId: 'admin_shamz',
+    hostName: 'Shamz',
+    description: 'Real-time collaborative study lounge with peer group chat and shared simulation workbench.',
+    isLive: true,
+    activeMembers: [
+      {
+        id: 'admin_shamz',
+        name: 'Shamz',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        role: 'Host',
+        currentAction: 'Hosting Peer Group',
+      },
+    ],
+    messages: [
+      {
+        id: 'msg-1',
+        senderId: 'admin_shamz',
+        senderName: 'Shamz',
+        senderAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+        text: 'Welcome to the peer study session! Ask questions, compare circuit values, and collaborate.',
+        timestamp: 1760100000000,
+      },
+    ],
+    materials: CANONICAL_MATERIALS,
+    sharedNotes: 'Study Goal: Calculate current-limiting resistors and simulate circuit response.',
+    createdAt: '2026-10-10',
   },
 ];
 
-export const MOCK_GLOBAL_LEADERBOARD: LeaderboardEntry[] = [
+export const MOCK_LAB_CHALLENGES = [
   {
-    rank: 1,
-    userId: 'admin_shamz',
-    userName: 'Shamz (Super Admin)',
-    userAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-    schoolOrClass: 'CogniTwin Global Command',
-    xp: 5000,
-    masteredCount: 5,
-    streakDays: 1,
+    id: 'ch-1',
+    title: 'Level 1: 9V Battery & Red LED Protection',
+    description: 'Calculate and set the exact resistance needed to safely operate a 2.0V red LED from a 9V source within optimal brightness (15–25 mA).',
+    targetGoal: 'Calculate and set the exact resistance needed to safely operate a 2.0V red LED from a 9V source within optimal brightness (15–25 mA).',
+    hintFormula: 'R = (V_supply - V_diode) / I_target = (9V - 2.0V) / 0.020A = 350 Ω',
+    sourceVoltage: 9,
+    ledColor: 'red' as const,
+    targetCurrentMinMa: 15,
+    targetCurrentMaxMa: 25,
+    kcId: 'kc-led-resistors',
+    xpReward: 60,
+  },
+  {
+    id: 'ch-2',
+    title: 'Level 2: 5V USB Circuit & Blue Diode Tuning',
+    description: 'Tuning for a 3.1V blue LED from a 5V USB supply. Target safe current between 12–22 mA without dimming out.',
+    targetGoal: 'Tuning for a 3.1V blue LED from a 5V USB supply. Target safe current between 12–22 mA without dimming out.',
+    hintFormula: 'R = (5V - 3.1V) / 0.018A = 105 Ω',
+    sourceVoltage: 5,
+    ledColor: 'blue' as const,
+    targetCurrentMinMa: 12,
+    targetCurrentMaxMa: 22,
+    kcId: 'kc-led-resistors',
+    xpReward: 80,
+  },
+  {
+    id: 'ch-3',
+    title: 'Level 3: 12V High-Power Automotive Circuit',
+    description: 'High voltage input! Calibrate resistance to prevent thermal avalanche breakdown on a 2.2V green diode (target 18–26 mA).',
+    targetGoal: 'High voltage input! Calibrate resistance to prevent thermal avalanche breakdown on a 2.2V green diode (target 18–26 mA).',
+    hintFormula: 'R = (12V - 2.2V) / 0.022A = 445 Ω',
+    sourceVoltage: 12,
+    ledColor: 'green' as const,
+    targetCurrentMinMa: 18,
+    targetCurrentMaxMa: 26,
+    kcId: 'kc-led-resistors',
+    xpReward: 100,
   },
 ];
+

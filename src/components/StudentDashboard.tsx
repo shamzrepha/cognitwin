@@ -23,8 +23,16 @@ interface StudentDashboardProps {
 
 export default function StudentDashboard({ onNavigate }: StudentDashboardProps) {
   const { currentUser, studentProgress, classroom } = useApp();
-  const progress = studentProgress[currentUser.id];
 
+  if (!currentUser) {
+    return (
+      <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-2xl text-slate-400">
+        Please sign in or select an account to view your Bayesian Knowledge Tracing profile.
+      </div>
+    );
+  }
+
+  const progress = studentProgress[currentUser.id];
   const overallMastery = progress?.overallMasteryPct ?? 50;
 
   // Identify next recommended KC based on BKT mastery

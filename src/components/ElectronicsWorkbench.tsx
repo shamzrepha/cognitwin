@@ -124,7 +124,7 @@ export default function ElectronicsWorkbench() {
   }, [resistance]);
 
   // Current BKT mastery for LED protection
-  const userMastery = studentProgress[currentUser.id]?.masteryByKC['kc-led-resistors'];
+  const userMastery = currentUser ? studentProgress[currentUser.id]?.masteryByKC['kc-led-resistors'] : undefined;
   const pL = userMastery?.probabilityMastery ?? 0.2;
   const cognitiveTier = getCognitiveTier(pL);
 
