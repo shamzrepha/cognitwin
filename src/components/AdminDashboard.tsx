@@ -51,11 +51,11 @@ export default function AdminDashboard() {
     return matchesSearch && matchesRole;
   });
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserName.trim() || !newUserEmail.trim()) return;
 
-    registerUser(newUserName, newUserEmail, newUserPassword, newUserRole);
+    await registerUser(newUserName, newUserEmail, newUserPassword, newUserRole);
     setShowAddUserModal(false);
     setNewUserName('');
     setNewUserEmail('');

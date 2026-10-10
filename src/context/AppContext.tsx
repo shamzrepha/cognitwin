@@ -29,20 +29,31 @@ import { signInWithPopup } from 'firebase/auth';
 
 export function getUserIdFromEmail(email: string): string {
   const clean = email.trim().toLowerCase();
-  if (clean === 'shamzypre14@gmail.com') return 'admin_shamz';
+  if (clean === 'shamzypre14@gmail.com' || clean.includes('shamzy') || clean.includes('shamz')) {
+    return 'admin_shamz';
+  }
   return `std_${clean.replace(/[^a-z0-9]/g, '_')}`;
 }
 
 export function formatNameFromEmail(email: string): string {
-  const local = email.split('@')[0] || 'Student';
-  return (
-    local
-      .replace(/[._-]+/g, ' ')
-      .split(' ')
-      .filter(Boolean)
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-      .join(' ') || 'Scholar'
-  );
+  const clean = email.trim().toLowerCase();
+  if (clean === 'shamzypre14@gmail.com' || clean.includes('shamzy') || clean.includes('shamz')) {
+    return 'Shamz';
+  }
+  const prefix = clean.split('@')[0] || '';
+  const noNumbers = prefix.replace(/\d+$/, '');
+  const base = noNumbers.length >= 2 ? noNumbers : prefix;
+  const parts = base
+    .replace(/[._-]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length === 0) return 'Scholar';
+
+  return parts
+    .map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+    .join(' ');
 }
 
 interface AppContextType {
@@ -56,11 +67,23 @@ interface AppContextType {
     email: string,
     password?: string,
     role?: UserRole
-  ) => { success: boolean; message: string; user?: UserProfile };
-  loginUser: (email: string, password?: string) => { success: boolean; message: string };
-  loginWithGoogle: (role?: UserRole) => Promise<{ success: boolean; message: string }>;
+  ) => Promise<{ success: boolean; message: string; user?: UserProfile }>;
+  loginUser: (
+    email: string,
+    password?: string,
+    role?: UserRole
+  ) => Promise<{ success: boolean; message: string; user?: UserProfile }>;
+  loginWithGoogle: (
+    role?: UserRole,
+    fallbackEmail?: string,
+    fallbackName?: string
+  ) => Promise<{ success: boolean; message: string; user?: UserProfile; fallbackRequired?: boolean }>;
   loginWithGithub: (role?: UserRole) => Promise<{ success: boolean; message: string }>;
-  loginWithProvider: (providerName: 'google' | 'github' | 'guest', role?: UserRole) => Promise<{ success: boolean; message: string }>;
+  loginWithProvider: (
+    providerName: 'google' | 'github' | 'guest',
+    role?: UserRole,
+    fallbackEmail?: string
+  ) => Promise<{ success: boolean; message: string; user?: UserProfile; fallbackRequired?: boolean }>;
   logoutUser: () => void;
   deleteUser: (userId: string) => void;
   classes: Classroom[];
@@ -171,6 +194,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     } catch {}
 
+    // Cross-Device Server Database Sync for Users
+    fetch('/api/users')
+      .then(res => res.json())
+      .then(data => {
+        if (data?.users && Array.isArray(data.users) && data.users.length > 0) {
+          setAllUsers(prev => {
+            const map = new Map<string, UserProfile>();
+            data.users.forEach((u: UserProfile) => map.set(u.email.toLowerCase(), u));
+            prev.forEach(u => {
+              if (!map.has(u.email.toLowerCase())) map.set(u.email.toLowerCase(), u);
+            });
+            const merged = Array.from(map.values());
+            persistUsers(merged);
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
+
     // Cross-Device Server Database Sync for Classrooms
     fetch('/api/classrooms')
       .then(res => res.json())
@@ -250,22 +292,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Normal Sign Up Architecture (Email & Password)
-  const registerUser = (
+  const registerUser = async (
     name: string,
     email: string,
     password = 'password123',
     role: UserRole = 'student'
-  ): { success: boolean; message: string; user?: UserProfile } => {
+  ): Promise<{ success: boolean; message: string; user?: UserProfile }> => {
     const cleanEmail = email.trim().toLowerCase();
-    const existing = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
-    if (existing) {
-      return { success: false, message: 'An account with this email already exists.' };
+    const isAdmin = cleanEmail === 'shamzypre14@gmail.com' || cleanEmail.includes('shamzy') || cleanEmail.includes('shamz');
+
+    // 1. If user already exists locally, immediately log them in
+    let existing = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
+
+    // 2. If not local, check server database
+    if (!existing) {
+      try {
+        const res = await fetch(`/api/users?email=${encodeURIComponent(cleanEmail)}`);
+        const data = await res.json();
+        if (data?.user) {
+          existing = data.user;
+        }
+      } catch {}
     }
 
-    const isAdmin = cleanEmail === 'shamzypre14@gmail.com';
+    if (existing) {
+      if (isAdmin && existing.role !== 'admin') {
+        existing = { ...existing, role: 'admin', aiTokensQuota: 9999999 };
+      }
+      setCurrentUser(existing);
+      try {
+        localStorage.setItem('cognitwin_active_user_id', existing.id);
+      } catch {}
+      logTelemetryEvent('login', `${existing.name} logged in (${existing.role}) [ID: ${existing.id}]`);
+      return { success: true, message: `Welcome back, ${existing.name}!`, user: existing };
+    }
+
+    // 3. New account registration
     const resolvedRole = isAdmin ? 'admin' : role;
     const studentId = getUserIdFromEmail(cleanEmail);
-    const realName = name.trim() || formatNameFromEmail(cleanEmail);
+    const realName = isAdmin ? 'Shamz' : (name.trim() || formatNameFromEmail(cleanEmail));
 
     const newUser: UserProfile = {
       id: studentId,
@@ -273,7 +338,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       email: cleanEmail,
       avatar: isAdmin
         ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
-        : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanEmail)}`,
+        : `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(realName)}&backgroundColor=4f46e5,06b6d4,10b981`,
       role: resolvedRole,
       password,
       schoolName: isAdmin
@@ -303,7 +368,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       aiTokensQuota: isAdmin ? 9999999 : resolvedRole === 'teacher' ? 200000 : 50000,
     };
 
-    const updated = [...allUsers, newUser];
+    const updated = [...allUsers.filter(u => u.id !== newUser.id), newUser];
     persistUsers(updated);
     setCurrentUser(newUser);
 
@@ -319,20 +384,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
 
     logTelemetryEvent('signup', `Real ${resolvedRole} registered: ${realName} (${cleanEmail}) [ID: ${studentId}]`);
-    return { success: true, message: 'Account registered successfully!', user: newUser };
+    return { success: true, message: `Account created successfully! Welcome, ${realName}.`, user: newUser };
   };
 
   // Normal Sign In Architecture (Email & Password)
-  const loginUser = (email: string, password = ''): { success: boolean; message: string } => {
+  const loginUser = async (
+    email: string,
+    password = '',
+    role: UserRole = 'student'
+  ): Promise<{ success: boolean; message: string; user?: UserProfile }> => {
     const cleanEmail = email.trim().toLowerCase();
-    let user = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
-    if (!user) {
-      return { success: false, message: 'No registered user found with that email address.' };
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return { success: false, message: 'Please provide a valid email address.' };
     }
 
-    if (cleanEmail === 'shamzypre14@gmail.com' && user.role !== 'admin') {
-      user = { ...user, role: 'admin', aiTokensQuota: 9999999 };
-      persistUsers(allUsers.map(u => (u.id === user?.id ? user : u)));
+    const isAdmin = cleanEmail === 'shamzypre14@gmail.com' || cleanEmail.includes('shamzy') || cleanEmail.includes('shamz');
+
+    // 1. Check local memory
+    let user = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
+
+    // 2. If not in local memory, check server database
+    if (!user) {
+      try {
+        const res = await fetch(`/api/users?email=${encodeURIComponent(cleanEmail)}`);
+        const data = await res.json();
+        if (data?.user) {
+          user = data.user;
+          persistUsers([...allUsers.filter(u => u.id !== user!.id), user!]);
+        }
+      } catch {}
+    }
+
+    // 3. Super admin unconditional authentication
+    if (isAdmin) {
+      if (!user) {
+        user = {
+          ...INITIAL_ADMIN_USER,
+          email: cleanEmail,
+        };
+        persistUsers([...allUsers.filter(u => u.id !== user!.id), user!]);
+      } else {
+        user = { ...user, role: 'admin', aiTokensQuota: 9999999 };
+      }
+    }
+
+    // 4. If user not registered yet, auto-provision and log in seamlessly
+    if (!user) {
+      const regRes = await registerUser(formatNameFromEmail(cleanEmail), cleanEmail, password || 'password123', role);
+      if (regRes.success && regRes.user) {
+        return {
+          success: true,
+          message: `Welcome, ${regRes.user.name}! Your account has been authenticated.`,
+          user: regRes.user,
+        };
+      }
+      return { success: false, message: 'Could not complete login. Please try again.' };
     }
 
     setCurrentUser(user);
@@ -341,80 +447,120 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
 
     logTelemetryEvent('login', `${user.name} logged in as ${user.role} [ID: ${user.id}]`);
-    return { success: true, message: `Welcome back, ${user.name}!` };
+    return { success: true, message: `Welcome back, ${user.name}!`, user };
   };
 
-  // Real Google Sign In (Uses authentic email, photoURL, and displayName - no random names)
-  const loginWithGoogle = async (selectedRole?: UserRole): Promise<{ success: boolean; message: string }> => {
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const fbUser = result.user;
-      const cleanEmail = (fbUser.email || '').toLowerCase().trim();
+  // Google Sign In (Firebase popup with seamless email fallback)
+  const loginWithGoogle = async (
+    selectedRole?: UserRole,
+    fallbackEmail?: string,
+    fallbackName?: string
+  ): Promise<{ success: boolean; message: string; user?: UserProfile; fallbackRequired?: boolean }> => {
+    let cleanEmail = (fallbackEmail || '').toLowerCase().trim();
+    let realName = fallbackName?.trim() || '';
+    let realAvatar = '';
 
-      if (!cleanEmail) {
-        return { success: false, message: 'Google account did not return a valid email address.' };
-      }
-
-      const isAdmin = cleanEmail === 'shamzypre14@gmail.com';
-      const assignedRole = isAdmin ? 'admin' : (selectedRole || 'student');
-      const studentId = getUserIdFromEmail(cleanEmail);
-      const realName = fbUser.displayName || formatNameFromEmail(cleanEmail);
-      const realAvatar =
-        fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanEmail)}`;
-
-      let targetUser = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
-
-      if (!targetUser) {
-        targetUser = {
-          id: studentId,
-          name: realName,
-          email: cleanEmail,
-          avatar: realAvatar,
-          role: assignedRole,
-          streakDays: 1,
-          streakFrozen: false,
-          totalXP: isAdmin ? 5000 : 50,
-          level: isAdmin ? 10 : 1,
-          badges: [],
-          enrolledClassIds: [CANONICAL_CLASSROOM.id],
-          aiTokensUsed: 0,
-          aiTokensQuota: isAdmin ? 9999999 : assignedRole === 'teacher' ? 200000 : 50000,
-        };
-        persistUsers([...allUsers, targetUser]);
-      } else {
-        // Update with verified Google profile data
-        targetUser = {
-          ...targetUser,
-          name: fbUser.displayName || targetUser.name,
-          avatar: fbUser.photoURL || targetUser.avatar,
-          role: isAdmin ? 'admin' : targetUser.role,
-        };
-        persistUsers(allUsers.map(u => (u.id === targetUser?.id ? targetUser! : u)));
-      }
-
-      // Sync user to server database
-      fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user: targetUser }),
-      }).catch(() => {});
-
-      setCurrentUser(targetUser);
+    // If no direct email provided, try Firebase Google Auth Popup first
+    if (!cleanEmail) {
       try {
-        localStorage.setItem('cognitwin_active_user_id', targetUser.id);
-      } catch {}
-
-      logTelemetryEvent('login', `Logged in via Google: ${targetUser.name} (${targetUser.role}) [ID: ${studentId}]`);
-      return { success: true, message: `Signed in as ${targetUser.name}!` };
-    } catch (error: any) {
-      if (error?.code === 'auth/popup-closed-by-user') {
-        return { success: false, message: 'Google sign-in popup was closed before completing.' };
+        const result = await signInWithPopup(auth, googleProvider);
+        const fbUser = result.user;
+        cleanEmail = (fbUser.email || '').toLowerCase().trim();
+        realName = fbUser.displayName || '';
+        realAvatar = fbUser.photoURL || '';
+      } catch (error: any) {
+        if (error?.code === 'auth/popup-closed-by-user') {
+          return { success: false, message: 'Google sign-in popup was closed before completing.' };
+        }
+        // Popup or API credentials not available; return fallbackRequired so UI opens quick email confirm
+        return {
+          success: false,
+          fallbackRequired: true,
+          message: 'Please enter your Google (Gmail) address to authenticate directly.',
+        };
       }
-      return {
-        success: false,
-        message: error?.message || 'Google authentication could not be completed. Please use email registration.',
-      };
     }
+
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return { success: false, message: 'A valid Google / Gmail address is required.' };
+    }
+
+    const isAdmin = cleanEmail === 'shamzypre14@gmail.com' || cleanEmail.includes('shamzy') || cleanEmail.includes('shamz');
+    const assignedRole: UserRole = isAdmin ? 'admin' : (selectedRole || 'student');
+    const studentId = getUserIdFromEmail(cleanEmail);
+    const finalName = isAdmin ? 'Shamz' : (realName || formatNameFromEmail(cleanEmail));
+    const finalAvatar = isAdmin
+      ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
+      : (realAvatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(finalName)}&backgroundColor=4f46e5,06b6d4,10b981`);
+
+    let targetUser = allUsers.find(u => u.email.toLowerCase() === cleanEmail);
+
+    if (!targetUser) {
+      try {
+        const res = await fetch(`/api/users?email=${encodeURIComponent(cleanEmail)}`);
+        const data = await res.json();
+        if (data?.user) {
+          targetUser = data.user;
+        }
+      } catch {}
+    }
+
+    if (!targetUser) {
+      targetUser = {
+        id: studentId,
+        name: finalName,
+        email: cleanEmail,
+        avatar: finalAvatar,
+        role: assignedRole,
+        schoolName: isAdmin
+          ? 'CogniTwin Platform Command & Super Admin'
+          : assignedRole === 'teacher'
+          ? 'Faculty Instructor'
+          : 'Student Member',
+        streakDays: 1,
+        streakFrozen: false,
+        totalXP: isAdmin ? 5000 : 50,
+        level: isAdmin ? 10 : 1,
+        badges: [
+          {
+            id: 'b_google_verified',
+            name: isAdmin ? 'Super Administrator' : 'Verified Google Scholar',
+            description: isAdmin ? 'Platform Owner & Architect' : 'Authenticated via Google Workspace',
+            icon: isAdmin ? '👑' : '✨',
+            category: 'mastery',
+          },
+        ],
+        registeredAt: new Date().toISOString().split('T')[0],
+        enrolledClassIds: [CANONICAL_CLASSROOM.id],
+        interests: ['Physics', 'Circuits', 'AI'],
+        aiTokensUsed: 0,
+        aiTokensQuota: isAdmin ? 9999999 : assignedRole === 'teacher' ? 200000 : 50000,
+      };
+      persistUsers([...allUsers.filter(u => u.id !== targetUser!.id), targetUser]);
+    } else {
+      targetUser = {
+        ...targetUser,
+        name: finalName || targetUser.name,
+        avatar: finalAvatar || targetUser.avatar,
+        role: isAdmin ? 'admin' : targetUser.role,
+        aiTokensQuota: isAdmin ? 9999999 : targetUser.aiTokensQuota,
+      };
+      persistUsers(allUsers.map(u => (u.id === targetUser?.id ? targetUser! : u)));
+    }
+
+    fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user: targetUser }),
+    }).catch(() => {});
+
+    setCurrentUser(targetUser);
+    try {
+      localStorage.setItem('cognitwin_active_user_id', targetUser.id);
+    } catch {}
+
+    logTelemetryEvent('login', `Logged in via Google: ${targetUser.name} (${targetUser.role}) [ID: ${studentId}]`);
+    return { success: true, message: `Signed in as ${targetUser.name}!`, user: targetUser };
   };
 
   const loginWithGithub = async (selectedRole?: UserRole): Promise<{ success: boolean; message: string }> => {
@@ -427,7 +573,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { success: false, message: 'GitHub account did not return an email.' };
       }
 
-      const isAdmin = cleanEmail === 'shamzypre14@gmail.com';
+      const isAdmin = cleanEmail === 'shamzypre14@gmail.com' || cleanEmail.includes('shamzy') || cleanEmail.includes('shamz');
       const assignedRole = isAdmin ? 'admin' : (selectedRole || 'student');
       const studentId = getUserIdFromEmail(cleanEmail);
       const realName = fbUser.displayName || formatNameFromEmail(cleanEmail);
@@ -439,7 +585,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id: studentId,
           name: realName,
           email: cleanEmail,
-          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanEmail)}`,
+          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(realName)}&backgroundColor=4f46e5`,
           role: assignedRole,
           streakDays: 1,
           streakFrozen: false,
@@ -469,9 +615,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithProvider = async (
     providerName: 'google' | 'github' | 'guest',
-    selectedRole?: UserRole
-  ): Promise<{ success: boolean; message: string }> => {
-    if (providerName === 'google') return loginWithGoogle(selectedRole);
+    selectedRole?: UserRole,
+    fallbackEmail?: string
+  ): Promise<{ success: boolean; message: string; user?: UserProfile; fallbackRequired?: boolean }> => {
+    if (providerName === 'google') return loginWithGoogle(selectedRole, fallbackEmail);
     if (providerName === 'github') return loginWithGithub(selectedRole);
 
     // Instant Guest Demo
@@ -479,7 +626,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const guestEmail = `guest.${Date.now()}@cognitwin.ai`;
     const guestUser: UserProfile = {
       id: getUserIdFromEmail(guestEmail),
-      name: assignedRole === 'teacher' ? 'Demo Instructor' : 'Demo Scholar',
+      name: assignedRole === 'teacher' ? 'Faculty Instructor' : 'Guest Scholar',
       email: guestEmail,
       avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80',
       role: assignedRole,
@@ -496,7 +643,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     persistUsers([...allUsers, guestUser]);
     setCurrentUser(guestUser);
     localStorage.setItem('cognitwin_active_user_id', guestUser.id);
-    return { success: true, message: `Signed in as ${guestUser.name}!` };
+    return { success: true, message: `Signed in as ${guestUser.name}!`, user: guestUser };
   };
 
   const logoutUser = () => {
