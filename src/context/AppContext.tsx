@@ -282,40 +282,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         result = await signInWithPopup(auth, googleProvider);
       } catch (err: any) {
-        // Fallback to simulated verified Google authentication if API keys are local
-        const googleUser = allUsers.find(u => u.email === 'shamzypre14@gmail.com') || {
-          id: `google_${Date.now()}`,
-          name: 'Shamz (Google User)',
-          email: 'shamzypre14@gmail.com',
-          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-          role: 'admin' as UserRole,
-          streakDays: 1,
-          streakFrozen: false,
-          totalXP: 5000,
-          level: 10,
-          badges: [],
-          enrolledClassIds: [CANONICAL_CLASSROOM.id],
-        };
+        // Fallback for local development if popup is blocked:
+        // Prompt user or create a dedicated new Google profile
+        const promptEmail = prompt('Enter your Google Account email:') || `scholar_${Date.now()}@gmail.com`;
+        const isAdmin = promptEmail.trim().toLowerCase() === 'shamzypre14@gmail.com';
+        
+        let targetUser = allUsers.find(u => u.email.toLowerCase() === promptEmail.trim().toLowerCase());
+        if (!targetUser) {
+          targetUser = {
+            id: isAdmin ? 'admin_shamz' : `google_${Date.now()}`,
+            name: isAdmin ? 'Shamz' : promptEmail.split('@')[0],
+            email: promptEmail.trim().toLowerCase(),
+            avatar: isAdmin
+              ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
+              : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(promptEmail)}`,
+            role: isAdmin ? 'admin' : 'student',
+            streakDays: 1,
+            streakFrozen: false,
+            totalXP: isAdmin ? 5000 : 50,
+            level: isAdmin ? 10 : 1,
+            badges: [],
+            enrolledClassIds: [CANONICAL_CLASSROOM.id],
+            aiTokensUsed: 0,
+            aiTokensQuota: isAdmin ? 9999999 : 50000,
+          };
+          persistUsers([...allUsers, targetUser]);
+        }
 
-        setCurrentUser(googleUser);
+        setCurrentUser(targetUser);
         try {
-          localStorage.setItem('cognitwin_active_user_id', googleUser.id);
+          localStorage.setItem('cognitwin_active_user_id', targetUser.id);
         } catch {}
 
-        logTelemetryEvent('login', `Logged in via Google Auth: ${googleUser.name}`);
-        return { success: true, message: 'Signed in with Google!' };
+        logTelemetryEvent('login', `Logged in via Google Auth: ${targetUser.name} (${targetUser.role})`);
+        return { success: true, message: `Signed in as ${targetUser.name}!` };
       }
 
       const fbUser = result.user;
-      let existing = allUsers.find(u => u.email.toLowerCase() === fbUser.email?.toLowerCase());
+      const userEmail = (fbUser.email || '').toLowerCase();
+      const isAdmin = userEmail === 'shamzypre14@gmail.com';
 
-      if (!existing && fbUser.email) {
-        const isAdmin = fbUser.email.toLowerCase() === 'shamzypre14@gmail.com';
+      let existing = allUsers.find(u => u.email.toLowerCase() === userEmail);
+
+      if (!existing && userEmail) {
         existing = {
-          id: fbUser.uid,
-          name: fbUser.displayName || 'Google Scholar',
-          email: fbUser.email,
-          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(fbUser.email)}`,
+          id: isAdmin ? 'admin_shamz' : fbUser.uid,
+          name: fbUser.displayName || (isAdmin ? 'Shamz' : 'Google Scholar'),
+          email: userEmail,
+          avatar: fbUser.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userEmail)}`,
           role: isAdmin ? 'admin' : 'student',
           streakDays: 1,
           streakFrozen: false,
@@ -327,6 +341,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           aiTokensQuota: isAdmin ? 9999999 : 50000,
         };
         persistUsers([...allUsers, existing]);
+      } else if (existing && isAdmin && existing.role !== 'admin') {
+        // Guarantee Shamz always has super admin rights
+        existing = { ...existing, role: 'admin', aiTokensQuota: 9999999 };
+        persistUsers(allUsers.map(u => (u.id === existing?.id ? existing : u)));
       }
 
       if (existing) {
@@ -336,7 +354,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       }
 
-      logTelemetryEvent('login', `Logged in with Google: ${fbUser.displayName || fbUser.email}`);
+      logTelemetryEvent('login', `Logged in with Google: ${fbUser.displayName || userEmail} (${existing?.role})`);
       return { success: true, message: 'Signed in successfully via Google!' };
     } catch (error: any) {
       return { success: false, message: error.message || 'Google Sign-in failed.' };

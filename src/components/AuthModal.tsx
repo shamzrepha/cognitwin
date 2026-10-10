@@ -71,11 +71,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     }
   };
 
-  const handleAdminQuickSwitch = () => {
-    switchUser('admin_shamz');
-    onClose();
-  };
-
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative">
@@ -269,22 +264,14 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </button>
         </form>
 
-        {/* Quick Access Actions */}
-        <div className="mt-5 pt-4 border-t border-slate-800/80 space-y-2">
+        {/* Quick Access */}
+        <div className="mt-5 pt-4 border-t border-slate-800/80">
           <button
             type="button"
             onClick={() => handleSocialAuth('guest')}
             className="w-full py-2 bg-slate-950 hover:bg-slate-850 text-slate-300 border border-slate-800 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all"
           >
             <UserCheck className="w-3.5 h-3.5 text-cyan-400" /> Instant Access as Guest Scholar
-          </button>
-
-          <button
-            type="button"
-            onClick={handleAdminQuickSwitch}
-            className="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all"
-          >
-            <Shield className="w-3.5 h-3.5" /> Sign In as Super Admin (Shamz)
           </button>
         </div>
       </div>
